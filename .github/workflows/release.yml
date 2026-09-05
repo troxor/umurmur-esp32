@@ -43,24 +43,37 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            EXISTING=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.sha)
-            # annotated vs lightweight: resolve to commit
-            TYPE=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.type)
-            if [[ "$TYPE" == "tag" ]]; then
-              EXISTING=$(gh api "repos/${{ github.repository }}/git/tags/$EXISTING" --jq .object.sha)
-            fi
-            HEAD=$(git rev-parse HEAD)
+          HEAD=$(git rev-parse HEAD)
+          git fetch --tags origin
+
+          CREATE=true
+          if git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            EXISTING=$(git rev-parse "refs/tags/${TAG}^{commit}")
             if [[ "$EXISTING" == "$HEAD" ]]; then
-              echo "create=false" >> "$GITHUB_OUTPUT"
-              echo "Release $TAG already exists for this commit"
+              CREATE=false
+              echo "Tag $TAG already points at this commit"
             else
               echo "Tag $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
               exit 1
             fi
-          else
-            echo "create=true" >> "$GITHUB_OUTPUT"
           fi
+
+          if [[ "$CREATE" == true ]] && gh release view "$TAG" >/dev/null 2>&1; then
+            EXISTING=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.sha)
+            TYPE=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.type)
+            if [[ "$TYPE" == "tag" ]]; then
+              EXISTING=$(gh api "repos/${{ github.repository }}/git/tags/$EXISTING" --jq .object.sha)
+            fi
+            if [[ "$EXISTING" == "$HEAD" ]]; then
+              CREATE=false
+              echo "Release $TAG already exists for this commit"
+            else
+              echo "Release $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
+              exit 1
+            fi
+          fi
+
+          echo "create=$CREATE" >> "$GITHUB_OUTPUT"
 
       - name: Build firmware (esp32)
         if: steps.skip.outputs.create == 'true'
@@ -80,7 +93,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          git tag "$TAG" || true
+          git tag "$TAG"
           git push origin "refs/tags/$TAG"
           BODY=$(cat <<EOF
           - Runtime version: \`${VERSION}\`
