@@ -1,0 +1,69 @@
+menu "uMurmur ESP"
+
+    config UMURMUR_MAX_USERS
+        int "Max Mumble users"
+        range 1 8
+        default 4
+
+    config UMURMUR_MAX_BANDWIDTH
+        int "Max bandwidth (bits/s)"
+        default 48000
+
+    config UMURMUR_WELCOME_TEXT
+        string "Welcome text"
+        default "Welcome to uMurmur on ESP32!"
+
+    config UMURMUR_CHANNEL_NAME
+        string "Channel name"
+        default "Lobby"
+
+    config UMURMUR_PASSWORD
+        string "Server password (empty = none; NVS overrides)"
+        default ""
+
+    config UMURMUR_ADMIN_PASSWORD
+        string "Admin password (empty = disabled; NVS overrides)"
+        default ""
+
+    config UMURMUR_BIND_PORT
+        int "Bind port"
+        default 64738
+
+    menu "WiFi"
+
+        config UMURMUR_WIFI_STA_SSID
+            string "STA SSID (empty = skip STA / use SoftAP)"
+            default ""
+
+        config UMURMUR_WIFI_STA_PASSWORD
+            string "STA password"
+            default ""
+
+        config UMURMUR_WIFI_STA_TIMEOUT_MS
+            int "STA connect timeout (ms)"
+            default 15000
+
+        config UMURMUR_WIFI_AP_SSID
+            string "SoftAP SSID"
+            default "umurmur-esp"
+
+        config UMURMUR_WIFI_AP_PASSWORD
+            string "SoftAP password (min 8 chars; empty = open)"
+            default "umurmur42"
+
+        config UMURMUR_WIFI_AP_CHANNEL
+            int "SoftAP channel"
+            range 1 13
+            default 6
+
+    endmenu
+
+    config UMURMUR_TASK_STACK
+        int "uMurmur task stack (bytes)"
+        default 16384
+
+    config UMURMUR_TASK_PRIORITY
+        int "uMurmur task priority"
+        default 5
+
+endmenu

@@ -1,0 +1,32 @@
+CONFIG_IDF_TARGET="esp32"
+
+# Disable Bluetooth to optimize available RAM on ESP32 Classic
+CONFIG_BT_ENABLED=n
+
+# Max sockets available for:
+# - TCP listen sockets (1-2)
+# - UDP sockets (1-2)
+# - TCP socket per client
+CONFIG_LWIP_IPV6=y
+CONFIG_LWIP_MAX_SOCKETS=8
+CONFIG_LWIP_TCP_MSS=1436
+
+# Confine main task's Stack size to allow for more client activity
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Trim unused features in Mbed TLS 3.x
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=2048
+CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=4096
+CONFIG_MBEDTLS_PEM_WRITE_C=y
+CONFIG_MBEDTLS_ECP_C=y
+CONFIG_MBEDTLS_ECDH_C=y
+CONFIG_MBEDTLS_ECDSA_C=y
+CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED=y
+
+# No need for encryption or the key scheme required to implement it
+CONFIG_NVS_ENCRYPTION=n
+
+# Console logging.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
