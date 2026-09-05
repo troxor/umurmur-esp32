@@ -1,16 +1,10 @@
 name: Release
 
+# Daily + manual: pin submodule to latest upstream umurmur release, build esp32,
+# publish a flashable zip via softprops/action-gh-release.
 on:
-  push:
-    branches: [master]
-    paths:
-      - "third_party/umurmur"
-      - "patches/**"
-      - "scripts/umurmur-version.sh"
-      - "components/umurmur/**"
-      - "main/**"
-      - "sdkconfig.defaults"
-      - ".github/workflows/release.yml"
+  schedule:
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,104 +17,78 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
-      - name: Apply patches + derive version
+      - name: Pin submodule to latest upstream release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh api repos/umurmur/umurmur/releases \
+            --jq '[.[] | select(.prerelease==false and .draft==false)][0].tag_name')
+          test -n "$TAG"
+          echo "Upstream release: $TAG"
+          git -C third_party/umurmur fetch --tags origin
+          git -C third_party/umurmur checkout "$TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add third_party/umurmur
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: bump umurmur to ${TAG}"
+            git push
+          fi
+
+      - name: Patches + version
         id: ver
         run: |
           set -euo pipefail
           ./scripts/apply-umurmur-patches.sh
           echo "version=$(./scripts/umurmur-version.sh version)" >> "$GITHUB_OUTPUT"
-          echo "tag=$(./scripts/umurmur-version.sh tag)" >> "$GITHUB_OUTPUT"
-          echo "semver=$(./scripts/umurmur-version.sh semver)" >> "$GITHUB_OUTPUT"
-          echo "patches=$(./scripts/umurmur-version.sh patch_count)" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git -C third_party/umurmur rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if tag already on this commit
+      - name: Skip if this version already released
         id: skip
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ steps.ver.outputs.version }}
         run: |
-          set -euo pipefail
-          HEAD=$(git rev-parse HEAD)
-          git fetch --tags origin
-
-          CREATE=true
-          if git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
-            EXISTING=$(git rev-parse "refs/tags/${TAG}^{commit}")
-            if [[ "$EXISTING" != "$HEAD" ]]; then
-              echo "Tag $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
-              exit 1
-            fi
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              CREATE=false
-              echo "Tag $TAG and release already exist for this commit"
-            else
-              echo "Tag $TAG points at HEAD but no release; will build and publish"
-            fi
-          elif gh release view "$TAG" >/dev/null 2>&1; then
-            EXISTING=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.sha)
-            TYPE=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.type)
-            if [[ "$TYPE" == "tag" ]]; then
-              EXISTING=$(gh api "repos/${{ github.repository }}/git/tags/$EXISTING" --jq .object.sha)
-            fi
-            if [[ "$EXISTING" == "$HEAD" ]]; then
-              CREATE=false
-              echo "Release $TAG already exists for this commit"
-            else
-              echo "Release $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
-              exit 1
-            fi
-          fi
-
-          echo "create=$CREATE" >> "$GITHUB_OUTPUT"
-
-      - name: Build firmware (esp32)
-        if: steps.skip.outputs.create == 'true'
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "$PWD:/project" -w /project \
-            -e HOME=/tmp \
-            espressif/idf:v5.3.2 \
-            bash -lc 'idf.py set-target esp32 && idf.py build'
-
-      - name: Publish GitHub Release
-        if: steps.skip.outputs.create == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.ver.outputs.tag }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          HEAD=$(git rev-parse HEAD)
-          if git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
-            EXISTING=$(git rev-parse "refs/tags/${TAG}^{commit}")
-            if [[ "$EXISTING" != "$HEAD" ]]; then
-              echo "Tag $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
-              exit 1
-            fi
-            echo "Tag $TAG already exists at HEAD; skipping tag create"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Already released $TAG — skipping build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            git tag "$TAG"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-          git push origin "refs/tags/$TAG"
-          BODY=$(cat <<EOF
-          - Runtime version: \`${VERSION}\`
-          - Upstream umurmur: \`${{ steps.ver.outputs.semver }}\` (SHA \`${{ steps.ver.outputs.sha }}\`)
-          - Local patches: ${{ steps.ver.outputs.patches }}
-          - Target: \`esp32\`
-          - IDF image: \`espressif/idf:v5.3.2\`
 
-          Flash with ESP-IDF / esptool against the attached binaries (see README).
-          EOF
-          )
-          # Collect common IDF outputs
-          # project(umurmur-esp) in root CMakeLists.txt
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes "$BODY" \
-            build/bootloader/bootloader.bin \
-            build/partition_table/partition-table.bin \
-            build/umurmur-esp.bin
+      - name: Build esp32
+        if: steps.skip.outputs.skip != 'true'
+        run: >
+          docker run --rm
+          -v "$PWD:/project" -w /project -e HOME=/tmp
+          espressif/idf:v5.5
+          bash -lc 'idf.py set-target esp32 && idf.py build'
+
+      - name: Pack flashable zip
+        if: steps.skip.outputs.skip != 'true'
+        id: pack
+        run: |
+          set -euo pipefail
+          ZIP="umurmur-esp-${{ steps.ver.outputs.version }}.zip"
+          ( cd build && zip "../${ZIP}" \
+              bootloader/bootloader.bin \
+              partition_table/partition-table.bin \
+              umurmur-esp.bin \
+              flash_args \
+              flasher_args.json )
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release
+        if: steps.skip.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
+          body: |
+            - Runtime version: `${{ steps.ver.outputs.version }}`
+            - Target: `esp32`
+            - IDF image: `espressif/idf:v5.5`
+
+            Unzip and flash with esptool using `flash_args` (or see README).
+          files: ${{ steps.pack.outputs.zip }}

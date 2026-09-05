@@ -15,34 +15,40 @@ git submodule update --init --recursive
 
 ### Bump upstream
 
+Pin the submodule to an upstream **release tag** (e.g. `v0.4.1`). The release workflow also does this automatically (daily / manual).
+
 ```bash
-git -C third_party/umurmur fetch origin
-git -C third_party/umurmur checkout <new-tag-or-sha>
+git -C third_party/umurmur fetch --tags origin
+git -C third_party/umurmur checkout v0.4.1
 git add third_party/umurmur
-# Update the Pin line above to the new SHA.
-./scripts/apply-umurmur-patches.sh   # fix/refresh patches/ if this fails
+./scripts/apply-umurmur-patches.sh   # refresh patches/ if this fails
 ```
 
 The configure-time patch step runs `git reset --hard` and `git clean -fd` in the submodule, destroying any hand edits there.
 
-Prefer the automated path: `.github/workflows/watch-upstream.yml` checks `umurmur/umurmur` stable releases daily (or on demand) and opens a bump PR. Use the manual steps below only when you need to pin a specific tag/SHA outside that flow.
-
 ## Versioning
 
-`UMURMUR_VERSION` is derived at build time by `scripts/umurmur-version.sh`:
+`UMURMUR_VERSION` comes from `scripts/umurmur-version.sh`:
 
-- Base: upstream semver from `third_party/umurmur/CMakeLists.txt` (`project(... VERSION ...)`)
-- Prefix: `esp32-`
-- If `patches/*.patch` is non-empty: append `+pN` (N = patch file count)
+| Part | Source |
+|------|--------|
+| `esp32-` | product prefix (full string is a product label, not pure SemVer) |
+| `0.4.1` | upstream semver |
+| `+<shortsha>` | this repo’s `git rev-parse --short HEAD` (SemVer **build metadata**) |
+| `.pM` | only if `patches/*.patch` is non-empty — local patch count |
 
-Examples: `esp32-0.4.1`, `esp32-0.4.1+p1`.
+Examples: `esp32-0.4.1+a1b2c3d`, `esp32-0.4.1+a1b2c3d.p1`.
 
-GitHub Release tags use a hyphen instead of `+` (`esp32-0.4.1-p1`) so tags stay URL-friendly.
+GitHub Release tags use the **same** string (including `+`).
 
-### Automated upstream follow
+### Firmware releases
 
-- `.github/workflows/watch-upstream.yml` — daily/manual check of `umurmur/umurmur` stable releases; opens a bump PR (draft if patches fail to apply).
-- `.github/workflows/release.yml` — after merge to `master` (paths that affect firmware), builds **esp32** firmware and publishes a GitHub Release.
+`.github/workflows/release.yml` (cron + `workflow_dispatch`):
+
+1. Check out the latest stable `umurmur/umurmur` release tag into the submodule (commit + push if the pin moved).
+2. Apply `patches/`, derive the version string.
+3. Build **esp32** firmware in `espressif/idf:v5.5`.
+4. Publish a flashable zip via [`softprops/action-gh-release`](https://github.com/softprops/action-gh-release) (skipped if that version tag already exists).
 
 ESP32-S3 release artifacts are deferred.
 
@@ -58,7 +64,7 @@ ESP32-S3 release artifacts are deferred.
 ```bash
 docker run -it --rm \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$PWD:/project" -w /project espressif/idf:v5.3.2 \
+  -v "$PWD:/project" -w /project espressif/idf:v5.5 \
   idf.py ...
 ```
 

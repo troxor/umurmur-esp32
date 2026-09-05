@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# Derive product version from upstream umurmur semver + local patch count.
+# Derive product version from upstream umurmur semver + git SHA + local patches.
+#
+# Form:  esp32-<semver>+<shortsha>[.p<N>]
+#   <semver>    upstream (e.g. 0.4.1)
+#   <shortsha>  git rev-parse --short HEAD (this repo)
+#   .p<N>       only if patches/*.patch is non-empty (N = count)
+#
+# After the prefix, <semver>+… is SemVer build-metadata shaped.
+# GitHub Release tags use this same string (git allows '+').
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UM_CMAKE="${ROOT}/third_party/umurmur/CMakeLists.txt"
@@ -16,17 +24,24 @@ shopt -s nullglob
 patches=("${PATCH_DIR}"/*.patch)
 n="${#patches[@]}"
 
+sha="unknown"
+if git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  sha="$(git -C "${ROOT}" rev-parse --short HEAD)"
+fi
+
+meta="+${sha}"
+if [[ "${n}" -gt 0 ]]; then
+  meta+=".p${n}"
+fi
+full="esp32-${semver}${meta}"
+
 case "${mode}" in
   semver) echo "${semver}" ;;
   patch_count) echo "${n}" ;;
-  version)
-    if [[ "${n}" -eq 0 ]]; then echo "esp32-${semver}"; else echo "esp32-${semver}+p${n}"; fi
-    ;;
-  tag)
-    if [[ "${n}" -eq 0 ]]; then echo "esp32-${semver}"; else echo "esp32-${semver}-p${n}"; fi
-    ;;
+  sha) echo "${sha}" ;;
+  version) echo "${full}" ;;
   *)
-    echo "usage: $0 {semver|patch_count|version|tag}" >&2
+    echo "usage: $0 {semver|patch_count|sha|version}" >&2
     exit 2
     ;;
 esac

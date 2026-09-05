@@ -2,14 +2,19 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ver="$("$ROOT/scripts/umurmur-version.sh" version)"
-tag="$("$ROOT/scripts/umurmur-version.sh" tag)"
 sem="$("$ROOT/scripts/umurmur-version.sh" semver)"
 n="$("$ROOT/scripts/umurmur-version.sh" patch_count)"
+sha="$("$ROOT/scripts/umurmur-version.sh" sha)"
 [[ "$sem" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad semver: $sem"; exit 1; }
 [[ "$n" =~ ^[0-9]+$ ]] || { echo "bad patch_count: $n"; exit 1; }
+[[ "$sha" =~ ^[0-9a-f]+$ ]] || { echo "bad sha: $sha"; exit 1; }
 if [[ "$n" -eq 0 ]]; then
-  [[ "$ver" == "esp32-$sem" && "$tag" == "esp32-$sem" ]] || { echo "mismatch empty patches"; exit 1; }
+  expect="esp32-${sem}+${sha}"
 else
-  [[ "$ver" == "esp32-$sem+p$n" && "$tag" == "esp32-$sem-p$n" ]] || { echo "mismatch patched"; exit 1; }
+  expect="esp32-${sem}+${sha}.p${n}"
 fi
-echo "umurmur-version OK: ver=$ver tag=$tag"
+[[ "$ver" == "$expect" ]] || {
+  echo "mismatch: ver=$ver (want $expect)"
+  exit 1
+}
+echo "umurmur-version OK: ver=$ver"
