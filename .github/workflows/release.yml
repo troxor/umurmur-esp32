@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "third_party/umurmur"
+      - "patches/**"
+      - "scripts/umurmur-version.sh"
+      - "components/umurmur/**"
+      - "main/**"
+      - "sdkconfig.defaults"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Apply patches + derive version
+        id: ver
+        run: |
+          set -euo pipefail
+          ./scripts/apply-umurmur-patches.sh
+          echo "version=$(./scripts/umurmur-version.sh version)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(./scripts/umurmur-version.sh tag)" >> "$GITHUB_OUTPUT"
+          echo "semver=$(./scripts/umurmur-version.sh semver)" >> "$GITHUB_OUTPUT"
+          echo "patches=$(./scripts/umurmur-version.sh patch_count)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git -C third_party/umurmur rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if tag already on this commit
+        id: skip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            EXISTING=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.sha)
+            # annotated vs lightweight: resolve to commit
+            TYPE=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.type)
+            if [[ "$TYPE" == "tag" ]]; then
+              EXISTING=$(gh api "repos/${{ github.repository }}/git/tags/$EXISTING" --jq .object.sha)
+            fi
+            HEAD=$(git rev-parse HEAD)
+            if [[ "$EXISTING" == "$HEAD" ]]; then
+              echo "create=false" >> "$GITHUB_OUTPUT"
+              echo "Release $TAG already exists for this commit"
+            else
+              echo "Tag $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
+              exit 1
+            fi
+          else
+            echo "create=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build firmware (esp32)
+        if: steps.skip.outputs.create == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/project" -w /project \
+            -e HOME=/tmp \
+            espressif/idf:v5.3.2 \
+            bash -lc 'idf.py set-target esp32 && idf.py build'
+
+      - name: Publish GitHub Release
+        if: steps.skip.outputs.create == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          git tag "$TAG" || true
+          git push origin "refs/tags/$TAG"
+          BODY=$(cat <<EOF
+          - Runtime version: \`${VERSION}\`
+          - Upstream umurmur: \`${{ steps.ver.outputs.semver }}\` (SHA \`${{ steps.ver.outputs.sha }}\`)
+          - Local patches: ${{ steps.ver.outputs.patches }}
+          - Target: \`esp32\`
+          - IDF image: \`espressif/idf:v5.3.2\`
+
+          Flash with ESP-IDF / esptool against the attached binaries (see README).
+          EOF
+          )
+          # Collect common IDF outputs
+          # project(umurmur-esp) in root CMakeLists.txt
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$BODY" \
+            build/bootloader/bootloader.bin \
+            build/partition_table/partition-table.bin \
+            build/umurmur-esp.bin
