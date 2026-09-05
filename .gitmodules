@@ -1,0 +1,3 @@
+[submodule "third_party/umurmur"]
+	path = third_party/umurmur
+	url = https://github.com/umurmur/umurmur.git
