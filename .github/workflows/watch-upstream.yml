@@ -1,0 +1,97 @@
+name: Watch upstream umurmur
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Resolve latest upstream release tag
+        id: up
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh api "repos/umurmur/umurmur/releases" \
+            --jq '[.[] | select(.prerelease==false and .draft==false)][0].tag_name')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream release: $TAG"
+
+      - name: Compare to current pin
+        id: need
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          WANT="${{ steps.up.outputs.tag }}"
+          git -C third_party/umurmur fetch --tags origin
+          CUR=$(git -C third_party/umurmur describe --tags --exact-match HEAD 2>/dev/null || true)
+          SHA=$(git -C third_party/umurmur rev-parse --short HEAD)
+          echo "current_describe=$CUR sha=$SHA"
+          if [[ "$CUR" == "$WANT" ]]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+          else
+            # Also no-op if HEAD already is the release commit
+            WANT_SHA=$(git -C third_party/umurmur rev-parse "refs/tags/$WANT^{commit}")
+            HEAD_SHA=$(git -C third_party/umurmur rev-parse HEAD)
+            if [[ "$WANT_SHA" == "$HEAD_SHA" ]]; then
+              echo "bump=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "bump=true" >> "$GITHUB_OUTPUT"
+              echo "want_sha=$WANT_SHA" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Bump submodule and open PR
+        if: steps.need.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ steps.up.outputs.tag }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/bump-umurmur-${WANT}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git -C third_party/umurmur checkout "$WANT"
+          git add third_party/umurmur
+          DRAFT=false
+          if ! ./scripts/apply-umurmur-patches.sh; then
+            DRAFT=true
+            echo "Patches failed; opening draft PR"
+          fi
+          VER=$(./scripts/umurmur-version.sh version || echo "unknown")
+          git commit -m "chore: bump umurmur to ${WANT}" || {
+            echo "No commit (already bumped on branch?)"; exit 0
+          }
+          git push -u origin "$BRANCH" --force-with-lease
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty')
+          BODY=$(cat <<EOF
+          Bumps \`third_party/umurmur\` to upstream release \`${WANT}\`.
+
+          - Derived version: \`${VER}\`
+          - Patch apply: $([ "$DRAFT" = true ] && echo FAILED — refresh patches/ || echo OK)
+
+          After merge, the release workflow publishes ESP32 firmware.
+          EOF
+          )
+          if [[ -n "$EXISTING" ]]; then
+            gh pr edit "$EXISTING" --body "$BODY"
+            [[ "$DRAFT" == true ]] && gh pr ready "$EXISTING" --undo || true
+          else
+            ARGS=(--title "chore: bump umurmur to ${WANT}" --body "$BODY" --base master --head "$BRANCH")
+            [[ "$DRAFT" == true ]] && ARGS+=(--draft)
+            gh pr create "${ARGS[@]}"
+          fi
