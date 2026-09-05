@@ -49,16 +49,17 @@ jobs:
           CREATE=true
           if git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
             EXISTING=$(git rev-parse "refs/tags/${TAG}^{commit}")
-            if [[ "$EXISTING" == "$HEAD" ]]; then
-              CREATE=false
-              echo "Tag $TAG already points at this commit"
-            else
+            if [[ "$EXISTING" != "$HEAD" ]]; then
               echo "Tag $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
               exit 1
             fi
-          fi
-
-          if [[ "$CREATE" == true ]] && gh release view "$TAG" >/dev/null 2>&1; then
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              CREATE=false
+              echo "Tag $TAG and release already exist for this commit"
+            else
+              echo "Tag $TAG points at HEAD but no release; will build and publish"
+            fi
+          elif gh release view "$TAG" >/dev/null 2>&1; then
             EXISTING=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.sha)
             TYPE=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" --jq .object.type)
             if [[ "$TYPE" == "tag" ]]; then
@@ -93,7 +94,17 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          git tag "$TAG"
+          HEAD=$(git rev-parse HEAD)
+          if git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            EXISTING=$(git rev-parse "refs/tags/${TAG}^{commit}")
+            if [[ "$EXISTING" != "$HEAD" ]]; then
+              echo "Tag $TAG exists on different commit $EXISTING (HEAD=$HEAD)" >&2
+              exit 1
+            fi
+            echo "Tag $TAG already exists at HEAD; skipping tag create"
+          else
+            git tag "$TAG"
+          fi
           git push origin "refs/tags/$TAG"
           BODY=$(cat <<EOF
           - Runtime version: \`${VERSION}\`
