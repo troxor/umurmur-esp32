@@ -89,7 +89,11 @@ jobs:
           )
           if [[ -n "$EXISTING" ]]; then
             gh pr edit "$EXISTING" --body "$BODY"
-            [[ "$DRAFT" == true ]] && gh pr ready "$EXISTING" --undo || true
+            if [[ "$DRAFT" == true ]]; then
+              gh pr ready "$EXISTING" --undo || true
+            else
+              gh pr ready "$EXISTING" || true
+            fi
           else
             ARGS=(--title "chore: bump umurmur to ${WANT}" --body "$BODY" --base master --head "$BRANCH")
             [[ "$DRAFT" == true ]] && ARGS+=(--draft)
