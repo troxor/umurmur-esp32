@@ -14,6 +14,18 @@ if(NOT _UMURMUR_PATCH_RC EQUAL 0)
         "${_UMURMUR_PATCH_OUT}${_UMURMUR_PATCH_ERR}")
 endif()
 
+execute_process(
+    COMMAND "${CMAKE_CURRENT_LIST_DIR}/../../scripts/umurmur-version.sh" version
+    OUTPUT_VARIABLE UMURMUR_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _UMURMUR_VER_RC
+    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../.."
+)
+if(NOT _UMURMUR_VER_RC EQUAL 0 OR UMURMUR_VERSION STREQUAL "")
+    message(FATAL_ERROR "umurmur-version.sh failed")
+endif()
+message(STATUS "UMURMUR_VERSION=${UMURMUR_VERSION}")
+
 idf_component_register(
     SRCS
         "${UMURMUR_SRC}/Mumble.pb-c.c"
@@ -50,6 +62,7 @@ idf_component_register(
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     _GNU_SOURCE
+    "UMURMUR_VERSION=\"${UMURMUR_VERSION}\""
 )
 
 target_include_directories(${COMPONENT_LIB} BEFORE PRIVATE
