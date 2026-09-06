@@ -10,7 +10,7 @@ This project consumes [umurmur/umurmur](https://github.com/umurmur/umurmur) as a
 - Local core deltas: `patches/*.patch` (applied by `scripts/apply-umurmur-patches.sh` during CMake configure)
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init
 ```
 
 ### Bump upstream
