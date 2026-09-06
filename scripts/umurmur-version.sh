@@ -4,7 +4,7 @@
 # Form:  esp32-<semver>+<shortsha>[.p<N>]
 #   <semver>    upstream (e.g. 0.4.1)
 #   <shortsha>  git rev-parse --short HEAD (this repo)
-#   .p<N>       ESP-local patches only (patches/*pem-blob*.patch)
+#   .p<N>       ESP-local patches only (*pem-blob* and *min-tls* in patches/)
 #
 # After the prefix, <semver>+… is SemVer build-metadata shaped.
 # GitHub Release tags use this same string (git allows '+').
@@ -22,7 +22,7 @@ fi
 
 shopt -s nullglob
 # Version .pN counts ESP-local patches only (not upstream backports in patches/0001–…).
-patches=("${PATCH_DIR}"/*pem-blob*.patch)
+patches=("${PATCH_DIR}"/*pem-blob*.patch "${PATCH_DIR}"/*min-tls*.patch)
 n="${#patches[@]}"
 
 sha="unknown"
