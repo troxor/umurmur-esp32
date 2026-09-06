@@ -1,0 +1,54 @@
+From 427450a91237b46791abaf4c69bb90608e8c17da Mon Sep 17 00:00:00 2001
+From: "Troy C." <327529+troxor@users.noreply.github.com>
+Date: Wed, 19 Aug 2026 10:16:05 -0500
+Subject: [PATCH 06/18] fix: Use properly-sized buffer for system_string (#255)
+
+---
+ src/main.c | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/src/main.c b/src/main.c
+index 6668298..33192bc 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -57,7 +57,10 @@
+ #include "sharedmemory.h"
+ #include "ban.h"
+ 
+-char system_string[256], version_string[64];
++#define SYSTEM_STRING_LEN (sizeof(((struct utsname){0}).sysname) + \
++                           sizeof(((struct utsname){0}).machine) + 2)
++
++char system_string[SYSTEM_STRING_LEN], version_string[64];
+ int bindport;
+ int bindport6;
+ char *bindaddr;
+@@ -353,7 +356,6 @@ int main(int argc, char **argv)
+ 	if (realtime)
+ 		setscheduler();
+ #endif
+-
+ 	signal(SIGCHLD, SIG_IGN); /* ignore child */
+ 	signal(SIGTSTP, SIG_IGN); /* ignore tty signals */
+ 	signal(SIGTTOU, SIG_IGN);
+@@ -367,12 +369,14 @@ int main(int argc, char **argv)
+ 
+ 	/* Build system string */
+ 	if (uname(&utsbuf) == 0) {
+-		snprintf(system_string, 256, "%s %s", utsbuf.sysname, utsbuf.machine);
++		snprintf(system_string, sizeof(system_string), "%s %s",
++		         utsbuf.sysname, utsbuf.machine);
+ 		strncpy(version_string, utsbuf.release, sizeof(version_string) - 1);
++		version_string[sizeof(version_string) - 1] = '\0';
+ 	}
+ 	else {
+-		strncpy(system_string, "unknown unknown", sizeof(system_string) - 1);
+-		strncpy(version_string, "unknown", sizeof(version_string) - 1);
++		snprintf(system_string, sizeof(system_string), "unknown unknown");
++		snprintf(version_string, sizeof(version_string), "unknown");
+ 	}
+ 
+ 	/* Initializing */
+-- 
+2.55.0
+

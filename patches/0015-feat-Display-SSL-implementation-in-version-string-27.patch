@@ -1,0 +1,117 @@
+From eb01ffc0949b8f85701d681f5d19b3e6ff23ddea Mon Sep 17 00:00:00 2001
+From: "Troy C." <327529+troxor@users.noreply.github.com>
+Date: Thu, 3 Sep 2026 08:31:51 -0700
+Subject: [PATCH 15/18] feat: Display SSL implementation in version string
+ (#270)
+
+---
+ CMakeLists.txt                       | 1 -
+ cmake/Modules/SelectTLSBackend.cmake | 9 +++++----
+ src/config.h.in                      | 3 +--
+ src/main.c                           | 7 ++++---
+ src/server.c                         | 4 ++--
+ 5 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8827465..cd588a8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -6,7 +6,6 @@ project(umurmurd VERSION 0.4.1 LANGUAGES C) # x-release-please-version
+ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/Modules")
+ 
+ # Versions
+-set(UMURMUR_CODENAME "Loopy")
+ 
+ if(NOT CMAKE_BUILD_TYPE)
+     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+diff --git a/cmake/Modules/SelectTLSBackend.cmake b/cmake/Modules/SelectTLSBackend.cmake
+index f280c1a..3476efd 100644
+--- a/cmake/Modules/SelectTLSBackend.cmake
++++ b/cmake/Modules/SelectTLSBackend.cmake
+@@ -13,7 +13,7 @@ function(SelectTLSBackend SSL)
+ 
+   if("${SSL}" STREQUAL "openssl")
+     find_package(OpenSSL REQUIRED)
+-    set(SSL_VERSION "OpenSSL ${OPENSSL_VERSION}")
++    set(SSLIMP_VERSION "OpenSSL ${OPENSSL_VERSION}")
+ 
+     set(LIBRARIES OpenSSL::SSL)
+ 
+@@ -24,7 +24,7 @@ function(SelectTLSBackend SSL)
+   elseif("${SSL}" STREQUAL "mbedtls")
+     find_package(MbedTLS REQUIRED)
+ 
+-    set(SSL_VERSION "MbedTLS ${MbedTLS_VERSION}")
++    set(SSLIMP_VERSION "MbedTLS ${MbedTLS_VERSION}")
+ 
+     set(USE_MBEDTLS ON PARENT_SCOPE)
+     set(LIBRARIES MbedTLS::mbedtls MbedTLS::mbedcrypto MbedTLS::mbedx509)
+@@ -34,7 +34,7 @@ function(SelectTLSBackend SSL)
+     # Nettle is the primary and required crypto library for GnuTLS
+     find_package(Nettle REQUIRED)
+ 
+-    set(SSL_VERSION "GnuTLS ${GNUTLS_VERSION}")
++    set(SSLIMP_VERSION "GnuTLS ${GNUTLS_VERSION}")
+ 
+     set(USE_GNUTLS ON PARENT_SCOPE)
+     set(LIBRARIES GnuTLS::GnuTLS ${NETTLE_LIBRARIES})
+@@ -44,7 +44,8 @@ function(SelectTLSBackend SSL)
+   set(SSLIMP_LIBRARIES ${LIBRARIES} PARENT_SCOPE)
+   set(SSLIMP_LIBRARY_DIR ${LIBRARY_DIR} PARENT_SCOPE)
+   set(SSLIMP_INCLUDE_DIR ${INCLUDE_DIR} PARENT_SCOPE)
++  set(SSLIMP_VERSION "${SSLIMP_VERSION}" PARENT_SCOPE)
+ 
+-  message(STATUS "Using ${SSL_VERSION} as SSL backend")
++  message(STATUS "Using ${SSLIMP_VERSION} as SSL backend")
+ 
+ endfunction()
+diff --git a/src/config.h.in b/src/config.h.in
+index af98295..676a67b 100644
+--- a/src/config.h.in
++++ b/src/config.h.in
+@@ -9,8 +9,7 @@
+ #cmakedefine USE_SHAREDMEMORY_API
+ 
+ #cmakedefine UMURMUR_VERSION "@UMURMUR_VERSION@"
+-#cmakedefine UMURMUR_CODENAME "@UMURMUR_CODENAME@"
+-#cmakedefine SSL_LIBRARY "@SSL_LIBRARY@"
++#define SSLIMP_VERSION "@SSLIMP_VERSION@"
+ 
+ #define DEFAULT_CONFIG "${CMAKE_INSTALL_FULL_SYSCONFDIR}/umurmur/umurmur.conf"
+ 
+diff --git a/src/main.c b/src/main.c
+index fee4dc7..22e701f 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -247,9 +247,10 @@ void setscheduler(void)
+ 
+ void printhelp(void)
+ {
+-	printf("uMurmur version %s ('%s'). Mumble protocol %d.%d.%d\n", UMURMUR_VERSION,
+-		UMURMUR_CODENAME, PROTVER_MAJOR, PROTVER_MINOR, PROTVER_PATCH);
+-	printf("Usage: umurmurd [dhp");
++	printf("uMurmur %s (%s), Mumble protocol %d.%d.%d\n", UMURMUR_VERSION,
++		SSLIMP_VERSION, PROTVER_MAJOR, PROTVER_MINOR, PROTVER_PATCH);
++	printf("Usage: umurmurd [-d] [-r] [-h] [-p <pidfile>] [-t] [-c <conf file>] [-a <addr>] [-b <port>]\n");
++	printf("       -d             - Do not daemonize - run in foreground.\n");
+ #ifdef POSIX_PRIORITY_SCHEDULING
+ 	printf("r");
+ #endif
+diff --git a/src/server.c b/src/server.c
+index e20e677..e1429ad 100644
+--- a/src/server.c
++++ b/src/server.c
+@@ -329,8 +329,8 @@ void Server_run(void)
+ 	/* Prepare UDP sockets */
+ 	Server_setupUDPSockets(addresses, pollfds);
+ 
+-	Log_info("uMurmur version %s ('%s') protocol version %d.%d.%d",
+-		UMURMUR_VERSION, UMURMUR_CODENAME, PROTVER_MAJOR, PROTVER_MINOR, PROTVER_PATCH);
++	Log_info("uMurmur %s (%s), Mumble protocol %d.%d.%d\n", UMURMUR_VERSION,
++		SSLIMP_VERSION, PROTVER_MAJOR, PROTVER_MINOR, PROTVER_PATCH);
+ 	Log_info("Visit https://github.com/umurmur/umurmur");
+ 
+ 	/* Main server loop */
+-- 
+2.55.0
+

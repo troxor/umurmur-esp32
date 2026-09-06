@@ -1,10 +1,6 @@
 name: Release
 
-# Daily + manual: pin submodule to latest upstream umurmur release, build esp32,
-# publish a flashable zip via softprops/action-gh-release.
 on:
-  schedule:
-    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,40 +14,18 @@ jobs:
         with:
           submodules: true
 
-      - name: Pin submodule to latest upstream release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG=$(gh api repos/umurmur/umurmur/releases \
-            --jq '[.[] | select(.prerelease==false and .draft==false)][0].tag_name')
-          test -n "$TAG"
-          echo "Upstream release: $TAG"
-          git -C third_party/umurmur fetch --tags origin
-          git -C third_party/umurmur checkout "$TAG"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add third_party/umurmur
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: bump umurmur to ${TAG}"
-            git push
-          fi
-
-      - name: Patches + version
+      - name: Version
         id: ver
-        run: |
-          set -euo pipefail
-          ./scripts/apply-umurmur-patches.sh
-          echo "version=$(./scripts/umurmur-version.sh version)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(./scripts/umurmur-version.sh version)" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if this version already released
+      - name: Skip if already released
         id: skip
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.ver.outputs.version }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Already released $TAG — skipping build"
+            echo "Already released $TAG — skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -61,9 +35,10 @@ jobs:
         if: steps.skip.outputs.skip != 'true'
         run: |
           docker run --rm \
-            -v "$PWD:/project" -w /project -e HOME=/tmp \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/project" -w /project \
             espressif/idf:v5.5 \
-            bash -lc 'git config --global --add safe.directory "*" && idf.py set-target esp32 && idf.py build'
+            bash -lc 'idf.py set-target esp32 && idf.py build'
 
       - name: Pack flashable zip
         if: steps.skip.outputs.skip != 'true'
@@ -90,5 +65,4 @@ jobs:
             - Target: `esp32`
             - IDF image: `espressif/idf:v5.5`
 
-            Unzip and flash with esptool using `flash_args` (or see README).
           files: ${{ steps.pack.outputs.zip }}

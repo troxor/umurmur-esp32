@@ -1,0 +1,26 @@
+From d691392c01389d0b65fea4784c89d601584a8622 Mon Sep 17 00:00:00 2001
+From: "Troy C." <327529+troxor@users.noreply.github.com>
+Date: Wed, 19 Aug 2026 10:15:24 -0500
+Subject: [PATCH 04/18] fix: Use snprintf in SSLi_init() (#254)
+
+---
+ src/ssli_openssl.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/ssli_openssl.c b/src/ssli_openssl.c
+index 090de07..5fefed7 100644
+--- a/src/ssli_openssl.c
++++ b/src/ssli_openssl.c
+@@ -269,7 +269,8 @@ void SSLi_init(void)
+ 		}
+ 		cipherstring = Memory_safeMalloc(1, cipherstringlen + 1);
+ 		for (i = 0; (cipher = sk_SSL_CIPHER_value(cipherlist_new, i)) != NULL; i++) {
+-			offset += sprintf(cipherstring + offset, "%s:", SSL_CIPHER_get_name(cipher));
++			offset += snprintf(cipherstring + offset, cipherstringlen + 1 - offset,
++			                   "%s:", SSL_CIPHER_get_name(cipher));
+ 		}
+ 	}
+ 
+-- 
+2.55.0
+
