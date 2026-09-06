@@ -8,6 +8,8 @@ sha="$("$ROOT/scripts/umurmur-version.sh" sha)"
 [[ "$sem" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad semver: $sem"; exit 1; }
 [[ "$n" =~ ^[0-9]+$ ]] || { echo "bad patch_count: $n"; exit 1; }
 [[ "$sha" =~ ^[0-9a-f]+$ ]] || { echo "bad sha: $sha"; exit 1; }
+# patch_count = number of patches/*.patch
+
 if [[ "$n" -eq 0 ]]; then
   expect="esp32-${sem}+${sha}"
 else

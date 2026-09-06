@@ -4,7 +4,7 @@
 # Form:  esp32-<semver>+<shortsha>[.p<N>]
 #   <semver>    upstream (e.g. 0.4.1)
 #   <shortsha>  git rev-parse --short HEAD (this repo)
-#   .p<N>       only if patches/*.patch is non-empty (N = count)
+#   .p<N>       count of patches/*.patch (omit suffix when empty)
 #
 # After the prefix, <semver>+… is SemVer build-metadata shaped.
 # GitHub Release tags use this same string (git allows '+').
@@ -25,8 +25,9 @@ patches=("${PATCH_DIR}"/*.patch)
 n="${#patches[@]}"
 
 sha="unknown"
-if git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  sha="$(git -C "${ROOT}" rev-parse --short HEAD)"
+git_root() { git -c safe.directory='*' -C "${ROOT}" "$@"; }
+if git_root rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  sha="$(git_root rev-parse --short HEAD)"
 fi
 
 meta="+${sha}"

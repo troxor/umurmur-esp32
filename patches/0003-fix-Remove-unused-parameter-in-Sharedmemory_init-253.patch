@@ -1,0 +1,54 @@
+From 5f6256123815672d164c9fddf69a861e8d0f757e Mon Sep 17 00:00:00 2001
+From: "Troy C." <327529+troxor@users.noreply.github.com>
+Date: Wed, 19 Aug 2026 09:43:59 -0500
+Subject: [PATCH 03/18] fix: Remove unused parameter in Sharedmemory_init()
+ (#253)
+
+---
+ src/main.c         | 2 +-
+ src/sharedmemory.c | 2 +-
+ src/sharedmemory.h | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/main.c b/src/main.c
+index 64b4874..6668298 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -382,7 +382,7 @@ int main(int argc, char **argv)
+ 	Ban_init();
+ 
+ #ifdef USE_SHAREDMEMORY_API
+-	Sharedmemory_init( bindport, bindport6 );
++  Sharedmemory_init( bindport );
+ #endif
+ 
+ 	/* SSL and scheduling is setup, we can drop privileges now */
+diff --git a/src/sharedmemory.c b/src/sharedmemory.c
+index ea61c9c..1843ae4 100644
+--- a/src/sharedmemory.c
++++ b/src/sharedmemory.c
+@@ -4,7 +4,7 @@ static int shm_fd;
+ static shm_t *shmptr = NULL;
+ static char shm_file_name[128];
+ 
+-void Sharedmemory_init( int bindport, int bindport6 )
++void Sharedmemory_init( int bindport )
+ {
+ 
+ 	int server_max_clients = getIntConf(MAX_CLIENTS);
+diff --git a/src/sharedmemory.h b/src/sharedmemory.h
+index 52618a7..fd3838e 100644
+--- a/src/sharedmemory.h
++++ b/src/sharedmemory.h
+@@ -15,7 +15,7 @@
+ #include "channel.h"
+ #include "sharedmemory_struct.h"
+ 
+-void Sharedmemory_init( int bindport, int bindport6 );
++void Sharedmemory_init( int bindport );
+ void Sharedmemory_update(void);
+ void Sharedmemory_alivetick(void);
+ void Sharedmemory_deinit(void);
+-- 
+2.55.0
+

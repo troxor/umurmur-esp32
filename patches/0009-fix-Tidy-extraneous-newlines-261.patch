@@ -1,0 +1,96 @@
+From 071657c5f1d8eb1cbd1a74c57b190a9cdfb06f04 Mon Sep 17 00:00:00 2001
+From: Andrew Kloet <andrew@kloet.net>
+Date: Wed, 19 Aug 2026 16:36:49 -0400
+Subject: [PATCH 09/18] fix: Tidy extraneous newlines (#261)
+
+---
+ src/log.c          | 6 +++---
+ src/server.c       | 2 +-
+ src/sharedmemory.c | 6 +++---
+ src/ssli_openssl.c | 2 +-
+ 4 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/src/log.c b/src/log.c
+index 1dc7323..7c0c2c4 100644
+--- a/src/log.c
++++ b/src/log.c
+@@ -146,18 +146,18 @@ static void openlogfile(const char *logfilename)
+ 
+ 	fd = openlogfd(logfilename);
+ 	if (fd < 0) {
+-		Log_fatal("Failed to open log file '%s' for writing: %s\n", logfilename, strerror(errno));
++		Log_fatal("Failed to open log file '%s' for writing: %s", logfilename, strerror(errno));
+ 	}
+ 
+ 	logfile = fdopen(fd, "a");
+ 	if (logfile == NULL) {
+ 		close(fd);
+-		Log_fatal("fdopen() failed for log file '%s': %s\n", logfilename, strerror(errno));
++		Log_fatal("fdopen() failed for log file '%s': %s", logfilename, strerror(errno));
+ 	}
+ 
+ 	/* Set the stream as line buffered */
+ 	if (setvbuf(logfile, NULL, _IOLBF, 0) < 0)
+-		Log_fatal("setvbuf() failed: %s\n", strerror(errno));
++		Log_fatal("setvbuf() failed: %s", strerror(errno));
+ 
+ 	/* XXX - Is it neccessary/appropriate that logging to file is non-blocking?
+ 	 * If not, there's a risk that execution blocks, meaning that voice blocks
+diff --git a/src/server.c b/src/server.c
+index 36671d6..e20e677 100644
+--- a/src/server.c
++++ b/src/server.c
+@@ -181,7 +181,7 @@ void Server_runLoop(struct pollfd* pollfds)
+ 				fcntl(tcpfd, F_SETFL, O_NONBLOCK);
+ 				setsockopt(tcpfd, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof(int));
+ 				char *addressString = Util_addressToString(&remote);
+-				Log_debug("Connection from %s port %d\n", addressString, Util_addressToPort(&remote));
++				Log_debug("Connection from %s port %d", addressString, Util_addressToPort(&remote));
+ 				free(addressString);
+ 				if (Client_add(tcpfd, &remote) < 0)
+ 					close(tcpfd);
+diff --git a/src/sharedmemory.c b/src/sharedmemory.c
+index 1843ae4..a69912c 100644
+--- a/src/sharedmemory.c
++++ b/src/sharedmemory.c
+@@ -21,21 +21,21 @@ void Sharedmemory_init( int bindport )
+ 	shm_fd = shm_open( shm_file_name, O_CREAT | O_RDWR, 0660 );
+ 	if(shm_fd == -1)
+ 	{
+-		Log_fatal( "SHM_API: Open failed:%s\n", strerror(errno));
++		Log_fatal("SHM_API: Open failed: %s", strerror(errno));
+ 		exit(EXIT_FAILURE);
+ 	}
+ 
+ 	if( ftruncate( shm_fd, shmtotal_size ) == -1 )
+ 	{
+ 		Sharedmemory_deinit();
+-		Log_fatal( "SHM_API: ftruncate : %s\n", strerror(errno));
++		Log_fatal("SHM_API: ftruncate: %s", strerror(errno));
+ 		exit(EXIT_FAILURE);
+ 	}
+ 
+ 	shmptr = mmap( 0, shmtotal_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0 );
+ 	if (shmptr == MAP_FAILED)
+ 	{
+-		Log_fatal( "SHM_API: mmap failed : %s\n", strerror(errno));
++		Log_fatal("SHM_API: mmap failed: %s", strerror(errno));
+ 		exit(EXIT_FAILURE);
+ 	}
+ 
+diff --git a/src/ssli_openssl.c b/src/ssli_openssl.c
+index 5fefed7..32b4691 100644
+--- a/src/ssli_openssl.c
++++ b/src/ssli_openssl.c
+@@ -404,7 +404,7 @@ static int verify_callback(int preverify_ok, X509_STORE_CTX *ctx)
+         X509_STORE_CTX_set_error(ctx, err);
+     }
+     if (!preverify_ok) {
+-	    Log_warn("SSL: verify error:num=%d:%s:depth=%d:%s\n", err,
++	    Log_warn("SSL: verify error:num=%d:%s:depth=%d:%s", err,
+ 	             X509_verify_cert_error_string(err), depth, buf);
+     }
+     /*
+-- 
+2.55.0
+

@@ -1,0 +1,75 @@
+diff --git a/src/ssli_mbedtls.c b/src/ssli_mbedtls.c
+index 5b25281..d54fbd8 100644
+--- a/src/ssli_mbedtls.c
++++ b/src/ssli_mbedtls.c
+@@ -84,18 +84,30 @@ static mbedtls_ctr_drbg_context ctr_drbg;
+ #endif
+ 
+ static mbedtls_x509_crt certificate;
+-static inline int x509parse_keyfile(mbedtls_pk_context *pk, const char *path, const char *pwd)
++
++static bool_t is_pem_blob(const char *s)
+ {
+-    int ret;
++	return s != NULL && strncmp(s, "-----BEGIN", 10) == 0;
++}
+ 
+-    mbedtls_pk_init(pk);
+-    ret = mbedtls_pk_parse_keyfile(pk, path, pwd, UMURMUR_MBEDTLS_RNG, UMURMUR_MBEDTLS_RNG_CTX);
+-    if (ret == 0 && !mbedtls_pk_can_do(pk, MBEDTLS_PK_ECDSA) && !mbedtls_pk_can_do(pk, MBEDTLS_PK_RSA))
+-	{
+-        ret = MBEDTLS_ERR_PK_TYPE_MISMATCH;
++static inline int x509parse_keyfile(mbedtls_pk_context *pk, const char *path_or_pem, const char *pwd)
++{
++	int ret;
++
++	mbedtls_pk_init(pk);
++	if (is_pem_blob(path_or_pem)) {
++		size_t len = strlen(path_or_pem) + 1; /* PEM parsers want NUL-terminated buffer length */
++		ret = mbedtls_pk_parse_key(pk,
++			(const unsigned char *)path_or_pem, len,
++			(const unsigned char *)pwd, pwd ? strlen(pwd) : 0,
++			UMURMUR_MBEDTLS_RNG, UMURMUR_MBEDTLS_RNG_CTX);
++	} else {
++		ret = mbedtls_pk_parse_keyfile(pk, path_or_pem, pwd, UMURMUR_MBEDTLS_RNG, UMURMUR_MBEDTLS_RNG_CTX);
+ 	}
++	if (ret == 0 && !mbedtls_pk_can_do(pk, MBEDTLS_PK_ECDSA) && !mbedtls_pk_can_do(pk, MBEDTLS_PK_RSA))
++		ret = MBEDTLS_ERR_PK_TYPE_MISMATCH;
+ 
+-    return ret;
++	return ret;
+ }
+ 
+ static mbedtls_pk_context key;
+@@ -253,18 +265,30 @@ static void initCertAndKey(void)
+ 	const char *crtfile = getStrConf(CERTIFICATE);
+ 	const char *keyfile = getStrConf(KEY);
+ 	int rc_crt, rc_key;
++	bool_t crt_pem, key_pem;
+ 
+ 	if (crtfile == NULL)
+ 		Log_fatal("No certificate file specified");
+ 	if (keyfile == NULL)
+ 		Log_fatal("No key file specified");
+ 
++	crt_pem = is_pem_blob(crtfile);
++	key_pem = is_pem_blob(keyfile);
++
+ 	mbedtls_x509_crt_init(&certificate);
+-	rc_crt = mbedtls_x509_crt_parse_file(&certificate, crtfile);
++	if (crt_pem)
++		rc_crt = mbedtls_x509_crt_parse(&certificate,
++			(const unsigned char *)crtfile, strlen(crtfile) + 1);
++	else
++		rc_crt = mbedtls_x509_crt_parse_file(&certificate, crtfile);
+ 	rc_key = x509parse_keyfile(&key, keyfile, NULL);
+ 	if (rc_crt == 0 && rc_key == 0)
+ 		return;
+ 
++	/* In-memory PEM failure is fatal (no filesystem fallback). */
++	if (crt_pem || key_pem)
++		Log_fatal("Key and/or certificate PEM invalid.");
++
+ 	/* Do not generate new certificate if either private key or
+ 	 * certificate file (or both) already exists, even though one
+ 	 * (or both) of them is invalid or inaccessible. */

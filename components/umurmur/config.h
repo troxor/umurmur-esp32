@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 #define USE_MBEDTLS
-/* SSLIMP_VERSION shown in Server_run banner */
+/* Banner SSL label (upstream: SSLIMP_VERSION from CMake; ESP skips that generate). */
 #define SSLIMP_VERSION "mbedTLS-ESP-IDF"
 
 #endif /* CONFIG_H */
