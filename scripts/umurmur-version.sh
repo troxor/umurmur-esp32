@@ -25,8 +25,9 @@ patches=("${PATCH_DIR}"/*.patch)
 n="${#patches[@]}"
 
 sha="unknown"
-if git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  sha="$(git -C "${ROOT}" rev-parse --short HEAD)"
+git_root() { git -c safe.directory='*' -C "${ROOT}" "$@"; }
+if git_root rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  sha="$(git_root rev-parse --short HEAD)"
 fi
 
 meta="+${sha}"
