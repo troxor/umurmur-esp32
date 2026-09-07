@@ -1,22 +1,18 @@
 # ESP32 uMurmur
 
-Minimal Mumble server on ESP32
-
-## Upstream uMurmur
-
-This project consumes the latest release of [umurmur/umurmur](https://github.com/umurmur/umurmur) as a git submodule and applies patches on top of it for ESP32 compatibility.
+This project patches the latest release of [umurmur/umurmur](https://github.com/umurmur/umurmur) for ESP32 compatibility.
 
 ## Requirements
 
 - ESP32 or ESP32-S3 SoC microcontroller
-- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) v5.x (ships **mbedTLS 3.x**)
+- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) v5.x
 
 ## Installation
 
 ### Install from release zip
 
 1. Download and extract the latest release zip.
-2. Use a WebSerial browser-based ESP flasher such as [ESP Flasher App](https://espflasher.app). Upload **umurmur-esp-merged.bin**, accepting defaults in most cases.
+2. Use a WebSerial browser-based ESP flasher such as [ESP Flasher App](https://espflasher.app). Upload `umurmur-esp-merged.bin`, accepting defaults in most cases.
 3. On first boot, connect to the device's temporary wireless network. SSID: **`umurmur-esp`**.
 4. If a browser with the configuration dialog is not opened automatically, visit **http://192.168.4.1/**.
 
@@ -37,7 +33,7 @@ docker run -it --rm \
 
 #### Configure, Compile, and Flash
 
-Default wifi credentials and uMurmur configuration options can be configured in the `menuconfig` step.
+Default WiFi credentials and uMurmur configuration options can be configured in the `menuconfig` step.
 
 ```bash
 git submodule --init
@@ -48,7 +44,7 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-## Configuration
+## Configuration Reference
 
 ### Values stored in NVS
 
