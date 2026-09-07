@@ -14,6 +14,7 @@ idf_component_register(
         esp_netif
         esp_event
         esp_http_server
+        dns_server
         mbedtls
         umurmur
 )

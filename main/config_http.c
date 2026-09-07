@@ -6,36 +6,19 @@
 
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_config.h"
 #include "sdkconfig.h"
 
+#include "dns_server.h"
+
 static const char *TAG = "cfg_http";
 
 // Since umurmur isn't running yet, we can accept large data, e.g. certificates
 #define BODY_MAX (16 * 1024)
-
-static void html_attr_escape(const char *in, char *out, size_t outlen)
-{
-	size_t o = 0;
-	if (!in)
-		in = "";
-	for (; *in && o + 1 < outlen; in++) {
-		if (*in == '"' || *in == '&' || *in == '<' || *in == '>') {
-			if (o + 6 >= outlen)
-				break;
-			int n = snprintf(out + o, outlen - o, "&#%u;", (unsigned char)*in);
-			if (n < 0)
-				break;
-			o += (size_t)n;
-		} else {
-			out[o++] = *in;
-		}
-	}
-	out[o] = '\0';
-}
 
 static int hex_nibble(char c)
 {
@@ -128,31 +111,56 @@ static void reboot_task(void *arg)
 	esp_restart();
 }
 
+static const char PAGE_CSS[] =
+	"*{box-sizing:border-box}"
+	"body{margin:0;min-height:100vh;color:#f0e7d5;"
+	"font:16px/1.5 \"Helvetica Neue\",Helvetica,Arial,sans-serif;"
+	"background:linear-gradient(#2a2a29,#1c1c1c);background-attachment:fixed}"
+	"main{max-width:36rem;margin:0 auto;padding:1.5rem 1.25rem 3rem}"
+	"header h1{margin:0;font-weight:300;font-size:2.25rem;letter-spacing:-.02em;color:#f0e7d5}"
+	"header .tag{margin:.35rem 0 0;color:#b6b6b6;font-size:.95rem}"
+	"hr{border:0;height:1px;margin:1rem 0 1.25rem;"
+	"background:linear-gradient(90deg,transparent,#ffcc00,transparent)}"
+	".hint{color:#b6b6b6;font-size:.9rem;margin:0 0 1.25rem}"
+	"label{display:block;margin:0 0 1rem;color:#e8e8e8;font-size:.9rem}"
+	"input,textarea{display:block;width:100%;margin-top:.35rem;padding:.55rem .65rem;"
+	"color:#efefef;background:#191919;border:1px solid #3a3a3a;border-radius:3px;"
+	"font:inherit}"
+	"textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;resize:vertical}"
+	"input:focus,textarea:focus{outline:0;border-color:#93bd20}"
+	"button{margin-top:.5rem;padding:.65rem 1.25rem;border:0;border-radius:3px;"
+	"color:#fff;font:600 .95rem/1 \"Helvetica Neue\",Helvetica,Arial,sans-serif;"
+	"background:linear-gradient(#93bd20,#659e10);cursor:pointer}"
+	"button:hover{background:linear-gradient(#749619,#527f0e)}"
+	".ok{margin-top:2rem;text-align:center}"
+	".ok h1{font-weight:300;color:#ffcc00}";
+
 static esp_err_t root_get(httpd_req_t *req)
 {
 	const umurmur_nvs_t *cfg = req->user_ctx;
-	char ssid_esc[96];
-	html_attr_escape(cfg && cfg->wifi_sta_ssid[0] ? cfg->wifi_sta_ssid : "",
-			 ssid_esc, sizeof(ssid_esc));
+	const char *ssid = cfg && cfg->wifi_sta_ssid[0] ? cfg->wifi_sta_ssid : "";
 
 	char *page = NULL;
 	int n = asprintf(&page,
-		"<!DOCTYPE html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\">"
-		"<title>uMurmur setup</title></head><body>"
-		"<h1>ESP32 uMurmur setup</h1>"
-		"Leave cert/key empty to auto-generate on first STA boot.</p>"
+		"<!DOCTYPE html><html><head><meta charset=utf-8>"
+		"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+		"<title>uMurmur setup</title><style>%s</style></head><body><main>"
+		"<h3>uMurmur setup</h3>"
+		"<header><p class=tag>Wireless configuration</p><hr></header>"
 		"<form method=POST action=/save>"
-		"<label>WiFi SSID<br><input name=wifi_ssid required maxlength=32 value=\"%s\"></label><br><br>"
-		"<label>WiFi password<br><input name=wifi_pass type=password maxlength=64></label><br><br>"
-		"<label>Mumble password<br><input name=password type=password maxlength=64></label><br><br>"
-		"<label>Admin password<br><input name=admin_password type=password maxlength=64></label><br><br>"
-		"<label>TLS certificate PEM (optional)<br>"
-		"<textarea name=cert_pem rows=8 cols=64 placeholder=\"-----BEGIN CERTIFICATE-----\"></textarea></label><br><br>"
-		"<label>TLS private key PEM (optional)<br>"
-		"<textarea name=key_pem rows=8 cols=64 placeholder=\"-----BEGIN PRIVATE KEY-----\"></textarea></label><br><br>"
+		"<label>WiFi SSID<input name=wifi_ssid required maxlength=32 value=\"%s\"></label>"
+		"<label>WiFi password<input name=wifi_pass type=password maxlength=64></label>"
+		"<header><p class=tag>Optional configuration</p><hr></header>"
+		"<label>Mumble password<input name=password type=password maxlength=64></label>"
+		"<label>Admin password<input name=admin_password type=password maxlength=64></label>"
+		"<p class=hint>Leave these fields empty to auto-generate a self-signed certificate.</p>"
+		"<label>TLS certificate PEM"
+		"<textarea name=cert_pem rows=8 placeholder=\"-----BEGIN CERTIFICATE-----\"></textarea></label>"
+		"<label>TLS private key PEM"
+		"<textarea name=key_pem rows=8 placeholder=\"-----BEGIN PRIVATE KEY-----\"></textarea></label>"
 		"<button type=submit>Save &amp; reboot</button>"
-		"</form></body></html>",
-		ssid_esc);
+		"</form></main></body></html>",
+		PAGE_CSS, ssid);
 	if (n < 0 || !page) {
 		free(page);
 		return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
@@ -250,9 +258,20 @@ static esp_err_t save_post(httpd_req_t *req)
 	}
 
 	ESP_LOGI(TAG, "NVS saved%s; rebooting", have_cert ? " (with PEMs)" : "");
-	const char *ok = "<!DOCTYPE html><html><body><p>Saved. Rebooting</p></body></html>";
+	char *ok = NULL;
+	int on = asprintf(&ok,
+		"<!DOCTYPE html><html><head><meta charset=utf-8>"
+		"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+		"<title>Saved</title><style>%s</style></head><body><main>"
+		"<div class=ok><h2>Success</h2><p class=hint>Configuration written to NVS, rebooting...</p></div>"
+		"</main></body></html>",
+		PAGE_CSS);
 	httpd_resp_set_type(req, "text/html");
-	httpd_resp_send(req, ok, HTTPD_RESP_USE_STRLEN);
+	if (on > 0 && ok)
+		httpd_resp_send(req, ok, on);
+	else
+		httpd_resp_send(req, "Saved. Rebooting", HTTPD_RESP_USE_STRLEN);
+	free(ok);
 	xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
 	fail = ESP_OK;
 
@@ -263,10 +282,25 @@ out:
 	return fail;
 }
 
+// Redirect everything to the configuration dialog
+// iOS needs a non-empty body, not just a Location header
+static esp_err_t http_404_redirect(httpd_req_t *req, httpd_err_code_t err)
+{
+	(void)err;
+	httpd_resp_set_status(req, "302 Temporary Redirect");
+	httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+	httpd_resp_send(req, "Redirect to the captive portal", HTTPD_RESP_USE_STRLEN);
+	return ESP_OK;
+}
+
 void config_http_run(const umurmur_nvs_t *cfg)
 {
+	esp_log_level_set("httpd_uri", ESP_LOG_ERROR);
+	esp_log_level_set("httpd_txrx", ESP_LOG_ERROR);
+	esp_log_level_set("httpd_parse", ESP_LOG_ERROR);
+
 	httpd_config_t conf = HTTPD_DEFAULT_CONFIG();
-	conf.max_open_sockets = 2;
+	conf.max_open_sockets = 5;
 	conf.lru_purge_enable = true;
 	conf.stack_size = 6144;
 	conf.server_port = 80;
@@ -292,8 +326,14 @@ void config_http_run(const umurmur_nvs_t *cfg)
 	};
 	httpd_register_uri_handler(server, &root);
 	httpd_register_uri_handler(server, &save);
+	httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_redirect);
 
-	ESP_LOGI(TAG, "Config portal http://192.168.4.1/ (SoftAP %s)", CONFIG_UMURMUR_WIFI_AP_SSID);
+	dns_server_config_t dns = DNS_SERVER_CONFIG_SINGLE("*", "WIFI_AP_DEF");
+	if (!start_dns_server(&dns))
+		ESP_LOGW(TAG, "DNS captive redirect failed to start");
+
+	ESP_LOGI(TAG, "Config portal http://192.168.4.1/ (SoftAP %s, captive DNS)",
+		 CONFIG_UMURMUR_WIFI_AP_SSID);
 
 	for (;;)
 		vTaskDelay(pdMS_TO_TICKS(60000));

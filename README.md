@@ -17,8 +17,8 @@ This project consumes the latest release of [umurmur/umurmur](https://github.com
 
 1. Download and extract the latest release zip.
 2. Use a WebSerial browser-based ESP flasher such as [ESP Flasher App](https://espflasher.app). Upload **umurmur-esp-merged.bin**, accepting defaults in most cases.
-3. On first boot, the device starts in SoftAP mode. SSID: **`umurmur-esp`** , Password: **`umurmur42`**
-4. Open **http://192.168.4.1/**, set WiFi credentials and configuration fields. The board will restart, connect to the given SSID and listen for connections. 
+3. On first boot, connect to the device's temporary wireless network. SSID: **`umurmur-esp`**.
+4. If a browser with the configuration dialog is not opened automatically, visit **http://192.168.4.1/**.
 
 ### Install from source
 

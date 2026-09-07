@@ -49,7 +49,7 @@ menu "uMurmur ESP"
 
         config UMURMUR_WIFI_AP_PASSWORD
             string "SoftAP password (min 8 chars; empty = open)"
-            default "umurmur42"
+            default ""
 
         config UMURMUR_WIFI_AP_CHANNEL
             int "SoftAP channel"
