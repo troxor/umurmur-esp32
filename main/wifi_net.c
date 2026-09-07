@@ -65,7 +65,7 @@ static bool start_softap(void)
 static bool try_sta(const umurmur_nvs_t *cfg)
 {
 	if (!cfg->wifi_sta_ssid[0]) {
-		ESP_LOGI(TAG, "No STA SSID; SoftAP");
+		ESP_LOGI(TAG, "No SSID provided, return to config");
 		return false;
 	}
 
@@ -100,13 +100,13 @@ static bool try_sta(const umurmur_nvs_t *cfg)
 		return true;
 	}
 
-	ESP_LOGW(TAG, "STA failed; falling back to SoftAP");
+	ESP_LOGW(TAG, "STA failed; SoftAP config");
 	esp_wifi_stop();
 	esp_wifi_deinit();
 	return false;
 }
 
-bool wifi_net_start(const umurmur_nvs_t *cfg)
+wifi_net_result_t wifi_net_start(const umurmur_nvs_t *cfg)
 {
 	ESP_ERROR_CHECK(esp_netif_init());
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -115,11 +115,13 @@ bool wifi_net_start(const umurmur_nvs_t *cfg)
 	ESP_ERROR_CHECK(esp_wifi_init(&wifi_init));
 
 	if (try_sta(cfg))
-		return true;
+		return WIFI_NET_STA;
 
 	{
 		wifi_init_config_t wifi_init = WIFI_INIT_CONFIG_DEFAULT();
 		ESP_ERROR_CHECK(esp_wifi_init(&wifi_init));
 	}
-	return start_softap();
+	if (!start_softap())
+		return WIFI_NET_FAIL;
+	return WIFI_NET_AP_CONFIG;
 }

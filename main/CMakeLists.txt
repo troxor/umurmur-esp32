@@ -5,6 +5,7 @@ idf_component_register(
         "nvs_config.c"
         "heap_log.c"
         "cert_gen.c"
+        "config_http.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -12,6 +13,7 @@ idf_component_register(
         esp_wifi
         esp_netif
         esp_event
+        esp_http_server
         mbedtls
         umurmur
 )

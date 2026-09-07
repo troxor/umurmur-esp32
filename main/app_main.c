@@ -8,6 +8,7 @@
 #include "nvs_config.h"
 #include "cert_gen.h"
 #include "wifi_net.h"
+#include "config_http.h"
 #include "umurmur_task.h"
 #include "conf_esp.h"
 #include "sdkconfig.h"
@@ -28,6 +29,20 @@ void app_main(void)
 	umurmur_nvs_t cfg;
 	nvs_config_load(&cfg);
 
+	wifi_net_result_t wifi = wifi_net_start(&cfg);
+	if (wifi == WIFI_NET_AP_CONFIG) {
+		heap_log_snapshot("ap-config");
+		ESP_LOGI(TAG, "Config mode: SoftAP portal");
+		config_http_run(&cfg);
+		return;
+	}
+	if (wifi != WIFI_NET_STA) {
+		ESP_LOGE(TAG, "WiFi failed");
+		nvs_config_free(&cfg);
+		return;
+	}
+	heap_log_snapshot("wifi-up");
+
 	if (!umurmur_certs_ensure(&cfg)) {
 		ESP_LOGE(TAG, "TLS cert/key unavailable; not starting umurmur");
 		nvs_config_free(&cfg);
@@ -36,13 +51,6 @@ void app_main(void)
 
 	umurmur_conf_apply(cfg.murmur_password, cfg.admin_password,
 			   cfg.cert_pem, cfg.key_pem);
-
-	if (!wifi_net_start(&cfg)) {
-		ESP_LOGE(TAG, "WiFi failed");
-		nvs_config_free(&cfg);
-		return;
-	}
-	heap_log_snapshot("wifi-up");
 	nvs_config_free(&cfg); /* passwords/certs already copied into conf_esp */
 
 	BaseType_t ok = xTaskCreate(
