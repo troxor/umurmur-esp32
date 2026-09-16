@@ -1,0 +1,81 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] fix: WANT_READ/ENOMEM on write; poll order
+
+diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
+--- a/src/ssli_mbedtls4.c
++++ b/src/ssli_mbedtls4.c
+@@ -4,6 +4,7 @@
+ #include "ssl.h"
+ #include "memory.h"
+ 
++#include <errno.h>
+ #include <stdlib.h>
+ #include <string.h>
+ 
+@@ -217,8 +218,21 @@
+ 	int rc;
+ 
+ 	rc = mbedtls_ssl_write(ssl, buf, len);
++	if (rc == MBEDTLS_ERR_SSL_WANT_READ)
++		return SSLI_ERROR_WANT_READ;
+ 	if (rc == MBEDTLS_ERR_SSL_WANT_WRITE)
+ 		return SSLI_ERROR_WANT_WRITE;
++	/* lwIP often returns ENOMEM/ENOBUFS when the TCP send queue is full;
++	 * mbedtls_net_send only maps EAGAIN → WANT_WRITE, so treat those as retry. */
++	if (rc == MBEDTLS_ERR_NET_SEND_FAILED) {
++		if (errno == ENOMEM || errno == ENOBUFS || errno == EAGAIN
++#if defined(EWOULDBLOCK)
++		    || errno == EWOULDBLOCK
++#endif
++		    )
++			return SSLI_ERROR_WANT_WRITE;
++		Log_warn("SSLi_write NET_SEND_FAILED errno=%d (%s)", errno, strerror(errno));
++	}
+ 	return rc;
+ }
+ 
+diff --git a/src/ssli_mbedtls.c b/src/ssli_mbedtls.c
+--- a/src/ssli_mbedtls.c
++++ b/src/ssli_mbedtls.c
+@@ -422,6 +422,8 @@
+ 	int rc;
+ 
+ 	rc = mbedtls_ssl_write(ssl, buf, len);
++	if (rc == MBEDTLS_ERR_SSL_WANT_READ)
++		return SSLI_ERROR_WANT_READ;
+ 	if (rc == MBEDTLS_ERR_SSL_WANT_WRITE)
+ 		return SSLI_ERROR_WANT_WRITE;
+ 	return rc;
+diff --git a/src/server.c b/src/server.c
+--- a/src/server.c
++++ b/src/server.c
+@@ -150,14 +150,16 @@
+ 			pollfds[i].revents = 0;
+ 		}
+ 
+-		clientcount = Client_getfds(&pollfds[nofServerSocks]);
+-
+ 		timeout = (int)(1000000LL - (int64_t)Timer_elapsed(&janitorTimer)) / 1000LL;
+ 		if (timeout <= 0) {
+ 			Client_janitor();
+ 			Timer_restart(&janitorTimer);
+ 			timeout = (int)(1000000LL - (int64_t)Timer_elapsed(&janitorTimer)) / 1000LL;
+ 		}
++
++		/* getfds after janitor — freeing between getfds and poll leaves EBADF. */
++		clientcount = Client_getfds(&pollfds[nofServerSocks]);
++
+ 		rc = poll(pollfds, clientcount + nofServerSocks, timeout);
+ 		if (rc == 0) {
+ 			/* Poll timed out, do maintenance */
+@@ -178,6 +180,10 @@
+ 				int tcpfd;
+ 				uint32_t addrlen = sizeof(struct sockaddr_storage);
+ 				tcpfd = accept(pollfds[i].fd, (struct sockaddr *)&remote, &addrlen);
++				if (tcpfd < 0) {
++					Log_warn("accept failed: %s", strerror(errno));
++					continue;
++				}
+ 				fcntl(tcpfd, F_SETFL, O_NONBLOCK);
+ 				setsockopt(tcpfd, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof(int));
+ 				char *addressString = Util_addressToString(&remote);

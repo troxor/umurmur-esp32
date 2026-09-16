@@ -3,12 +3,10 @@ CONFIG_IDF_TARGET="esp32"
 # Disable Bluetooth to optimize available RAM on ESP32 Classic
 CONFIG_BT_ENABLED=n
 
-# Max sockets available for:
-# - TCP listen sockets (1-2)
-# - UDP sockets (1-2)
-# - TCP socket per client
+# Max sockets: up to 4 listen/UDP (v4+v6) + max_users (≤8) + 1 reject
+# slot + captive-portal httpd.
 CONFIG_LWIP_IPV6=y
-CONFIG_LWIP_MAX_SOCKETS=8
+CONFIG_LWIP_MAX_SOCKETS=16
 CONFIG_LWIP_TCP_MSS=1436
 
 # Confine main task's Stack size to allow for more client activity

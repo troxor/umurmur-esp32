@@ -13,11 +13,12 @@ static const char *TAG = "umurmur";
 
 void umurmur_heap_log(const char *phase)
 {
-	ESP_LOGI(TAG, "heap [%s] clients=%d free=%u largest=%u",
+	/* free_size is O(1); largest_free_block walks TLSF and can trip IWDT
+	 * with several live TLS sessions (seen on Client_free of a 5th reject). */
+	ESP_LOGI(TAG, "heap [%s] clients=%d free=%u",
 		phase ? phase : "?",
 		Client_count(),
-		(unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
-		(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+		(unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 }
 
 static void vlog(esp_log_level_t level, const char *fmt, va_list ap)
