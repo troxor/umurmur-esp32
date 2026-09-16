@@ -1,0 +1,41 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] ssli_mbedtls: map PEER_CLOSE_NOTIFY to ZERO_RETURN
+
+Non-upstreamable (ESP-only for now).
+
+On ESP-IDF mbedTLS 4.1.0, PEER_CLOSE_NOTIFY -> immediate Client_free
+drains free heap when other TLS sessions are alive (~200 B/cycle).
+Desktop mbedTLS 4.2.0 does not reproduce under valgrind; keep this as
+an ESP carry until IDF's mbedtls is newer or the root cause is clearer.
+
+Maps peer close_notify to SSLI_ERROR_ZERO_RETURN so Client_read takes
+the Client_close path (OpenSSL parity).
+
+diff --git a/src/ssli_mbedtls.c b/src/ssli_mbedtls.c
+index 5957b35..32cfdb6 100644
+--- a/src/ssli_mbedtls.c
++++ b/src/ssli_mbedtls.c
+@@ -430,6 +430,9 @@ int SSLi_write(SSL_handle_t *ssl, uint8_t *buf, int len)
+ int SSLi_get_error(SSL_handle_t *ssl, int code)
+ {
+ 	(void)ssl;
++	/* ESP-only: PEER_CLOSE_NOTIFY -> ZERO_RETURN (see patch header). */
++	if (code == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)
++		return SSLI_ERROR_ZERO_RETURN;
+ 	return code;
+ }
+ 
+diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
+index 6f8a3dd..2238bbc 100644
+--- a/src/ssli_mbedtls4.c
++++ b/src/ssli_mbedtls4.c
+@@ -222,6 +222,9 @@ int SSLi_write(SSL_handle_t *ssl, uint8_t *buf, int len)
+ int SSLi_get_error(SSL_handle_t *ssl, int code)
+ {
+ 	(void)ssl;
++	/* ESP-only: PEER_CLOSE_NOTIFY -> ZERO_RETURN (see patch header). */
++	if (code == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)
++		return SSLI_ERROR_ZERO_RETURN;
+ 	return code;
+ }
+ 
