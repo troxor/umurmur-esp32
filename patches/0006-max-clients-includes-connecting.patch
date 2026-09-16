@@ -1,0 +1,26 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] fix: max_users check counts connecting client
+
+Upstreamable.
+
+Client_add() increments clientcount before Authenticate. The server-full
+check used >= MAX, so the Nth connecting client saw count==N and was
+rejected — effective capacity was max_users - 1.
+
+server.c already allocates pollfds for MAX + 1 "connecting that will be
+disconnected", which matches allowing count == MAX through auth.
+
+diff --git a/src/messagehandler.c b/src/messagehandler.c
+index 1af3153..ee0d349 100644
+--- a/src/messagehandler.c
++++ b/src/messagehandler.c
+@@ -176,7 +176,8 @@ void Mh_handle_message(client_t *client, message_t *msg)
+ 			goto disconnect;
+ 		}
+ 
+-		if (Client_count() >= getIntConf(MAX_CLIENTS)) {
++		/* Client_count includes this connecting client (not yet authenticated). */
++		if (Client_count() > getIntConf(MAX_CLIENTS)) {
+ 			char buf[64];
+ 			snprintf(buf, 64, "Server is full (max %d users)", getIntConf(MAX_CLIENTS));
+ 			sendServerReject(client, buf, MUMBLE_PROTO__REJECT__REJECT_TYPE__ServerFull);
