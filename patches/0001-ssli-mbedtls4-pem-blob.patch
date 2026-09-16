@@ -1,0 +1,71 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] ssli_mbedtls4: accept in-memory PEM for certificate/key
+
+Upstreamable: certificate/private_key may be a filesystem path or a PEM blob
+("-----BEGIN..."). Needed here for NVS-backed conf; no ESP-specific APIs.
+
+diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
+index 5da42ae..d4150d4 100644
+--- a/src/ssli_mbedtls4.c
++++ b/src/ssli_mbedtls4.c
+@@ -5,6 +5,7 @@
+ #include "memory.h"
+ 
+ #include <stdlib.h>
++#include <string.h>
+ 
+ #include <psa/crypto.h>
+ #include <psa/crypto_extra.h>
+@@ -28,10 +29,21 @@ const int ciphers[] =
+ static mbedtls_x509_crt certificate;
+ static mbedtls_pk_context key;
+ 
+-static inline int x509parse_keyfile(mbedtls_pk_context *pk, const char *path, const char *pwd)
++static bool_t is_pem_blob(const char *s)
++{
++	return s != NULL && strncmp(s, "-----BEGIN", 10) == 0;
++}
++
++static inline int x509parse_keyfile(mbedtls_pk_context *pk, const char *path_or_pem, const char *pwd)
+ {
+ 	mbedtls_pk_init(pk);
+-	return mbedtls_pk_parse_keyfile(pk, path, pwd);
++	if (is_pem_blob(path_or_pem)) {
++		size_t len = strlen(path_or_pem) + 1; /* PEM parsers want NUL-terminated buffer length */
++		return mbedtls_pk_parse_key(pk,
++			(const unsigned char *)path_or_pem, len,
++			(const unsigned char *)pwd, pwd ? strlen(pwd) : 0);
++	}
++	return mbedtls_pk_parse_keyfile(pk, path_or_pem, pwd);
+ }
+ 
+ static void initCert()
+@@ -44,11 +56,16 @@ static void initCert()
+ 		return;
+ 	}
+ 
+-	rc = mbedtls_x509_crt_parse_file(&certificate, crtfile);
++	if (is_pem_blob(crtfile))
++		rc = mbedtls_x509_crt_parse(&certificate,
++			(const unsigned char *)crtfile, strlen(crtfile) + 1);
++	else
++		rc = mbedtls_x509_crt_parse_file(&certificate, crtfile);
+ 	if (rc != 0) {
+ 		char buffer[128];
+ 		mbedtls_strerror(rc, buffer, sizeof(buffer));
+-		Log_fatal("Could not parse certificate file %s: %s", crtfile, buffer);
++		Log_fatal("Could not parse certificate %s: %s",
++			is_pem_blob(crtfile) ? "PEM" : crtfile, buffer);
+ 	}
+ }
+ 
+@@ -64,7 +81,8 @@ static void initKey()
+ 	if (rc != 0) {
+ 		char buffer[128];
+ 		mbedtls_strerror(rc, buffer, sizeof(buffer));
+-		Log_fatal("Could not read private key file %s: %s", keyfile, buffer);
++		Log_fatal("Could not read private key %s: %s",
++			is_pem_blob(keyfile) ? "PEM" : keyfile, buffer);
+ 	}
+ }
+ 

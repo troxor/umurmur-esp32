@@ -1,0 +1,96 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] fix: use PRIu32 for uint32_t printf/log formats
+
+Upstreamable: on platforms where uint32_t is unsigned long (e.g. ESP-IDF
+xtensa), %d/%u trigger -Wformat. Use <inttypes.h> PRIu32 instead.
+
+diff --git a/src/ban.c b/src/ban.c
+index ff764b9..cf03a7e 100644
+--- a/src/ban.c
++++ b/src/ban.c
+@@ -34,6 +34,7 @@
+ #include <stdlib.h>
+ #include <time.h>
+ #include <string.h>
++#include <inttypes.h>
+ #include "log.h"
+ #include "memory.h"
+ #include "list.h"
+@@ -92,7 +93,7 @@ void Ban_UserBan(client_t *client, char *reason)
+ 
+ 	char *clientAddressString = Util_clientAddressToString(client);
+ 
+-	Log_info_client(client, "User kickbanned. Reason: '%s' Hash: %s IP: %s Banned for: %d seconds",
++	Log_info_client(client, "User kickbanned. Reason: '%s' Hash: %s IP: %s Banned for: %" PRIu32 " seconds",
+ 		ban->reason, hexhash, clientAddressString, ban->duration);
+ 
+ 	free(clientAddressString);
+@@ -303,7 +304,7 @@ static void Ban_saveBanFile(void)
+ 		SSLi_hash2hex(ban->hash, hexhash);
+ 
+ 		char *addressString = Util_addressToString(&ban->address);
+-		fprintf(file, "%s,%s,%d,%ld,%d,%s,%s\n", hexhash, addressString,ban->mask, (long int)ban->time, ban->duration, ban->name, ban->reason);
++		fprintf(file, "%s,%s,%" PRIu32 ",%ld,%" PRIu32 ",%s,%s\n", hexhash, addressString, ban->mask, (long int)ban->time, ban->duration, ban->name, ban->reason);
+ 		free(addressString);
+ 	}
+ 	fclose(file);
+diff --git a/src/client.c b/src/client.c
+index 8abab83..022da8a 100644
+--- a/src/client.c
++++ b/src/client.c
+@@ -37,6 +37,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <strings.h>
++#include <inttypes.h>
+ #include "log.h"
+ #include "memory.h"
+ #include "list.h"
+@@ -349,7 +350,7 @@ int Client_read(client_t *client)
+ 
+ 				// Reject messages that are too large for our buffer.
+ 				if (client->msgsize > BUFSIZE - 6) {
+-					Log_warn("Too big message received (%u bytes). Disconnecting client.", client->msgsize);
++					Log_warn("Too big message received (%" PRIu32 " bytes). Disconnecting client.", client->msgsize);
+ 					Client_free(client);
+ 					return -1;
+ 				}
+diff --git a/src/messagehandler.c b/src/messagehandler.c
+index 1af3153..046401c 100644
+--- a/src/messagehandler.c
++++ b/src/messagehandler.c
+@@ -32,6 +32,7 @@
+ 
+ #include <string.h>
+ #include <stdlib.h>
++#include <inttypes.h>
+ 
+ #include "log.h"
+ #include "memory.h"
+@@ -418,7 +419,7 @@ void Mh_handle_message(client_t *client, message_t *msg)
+ 					break;
+ 			}
+ 			if (target == NULL) {
+-				Log_warn("Client with sessionID %d not found", msg->payload.userState->session);
++				Log_warn("Client with sessionID %" PRIu32 " not found", msg->payload.userState->session);
+ 				break;
+ 			}
+ 		}
+@@ -605,7 +606,7 @@ void Mh_handle_message(client_t *client, message_t *msg)
+ 					}
+ 				}
+ 				if (itr == NULL)
+-					Log_warn("TextMessage: Session ID %d not found", msg->payload.textMessage->session[i]);
++					Log_warn("TextMessage: Session ID %" PRIu32 " not found", msg->payload.textMessage->session[i]);
+ 			} /* for */
+ 		}
+ 		break;
+@@ -888,7 +889,7 @@ void Mh_handle_message(client_t *client, message_t *msg)
+ 				break;
+ 		}
+ 		if (target == NULL) {
+-			Log_warn("Client with sessionId %d not found", msg->payload.userRemove->session);
++			Log_warn("Client with sessionId %" PRIu32 " not found", msg->payload.userRemove->session);
+ 			break;
+ 		}
+ 		msg->payload.userRemove->session = target->sessionId;

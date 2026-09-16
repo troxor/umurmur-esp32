@@ -1,8 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+/* Match upstream CMake: mbedtls4 implies both macros */
 #define USE_MBEDTLS
-/* Banner SSL label (upstream: SSLIMP_VERSION from CMake; ESP skips that generate). */
-#define SSLIMP_VERSION "mbedTLS-ESP-IDF"
+#define USE_MBEDTLS4
 
 #endif /* CONFIG_H */

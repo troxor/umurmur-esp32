@@ -26,6 +26,24 @@ if(NOT _UMURMUR_VER_RC EQUAL 0 OR UMURMUR_VERSION STREQUAL "")
 endif()
 message(STATUS "UMURMUR_VERSION=${UMURMUR_VERSION}")
 
+# Match upstream SelectTLSBackend: SSLIMP_VERSION = "MbedTLS <semver>" from headers.
+set(_SSLIMP_VERSION "")
+foreach(_hdr IN ITEMS build_info.h version.h)
+    set(_path "$ENV{IDF_PATH}/components/mbedtls/mbedtls/include/mbedtls/${_hdr}")
+    if(NOT EXISTS "${_path}")
+        continue()
+    endif()
+    file(STRINGS "${_path}" _line REGEX "MBEDTLS_VERSION_STRING ")
+    if(_line MATCHES "\"([0-9]+\\.[0-9]+\\.[0-9]+)\"")
+        set(_SSLIMP_VERSION "MbedTLS ${CMAKE_MATCH_1}")
+        break()
+    endif()
+endforeach()
+if(_SSLIMP_VERSION STREQUAL "")
+    message(FATAL_ERROR "Could not read MBEDTLS_VERSION_STRING from IDF mbedtls headers")
+endif()
+message(STATUS "SSLIMP_VERSION=${_SSLIMP_VERSION}")
+
 idf_component_register(
     SRCS
         "${UMURMUR_SRC}/Mumble.pb-c.c"
@@ -38,7 +56,7 @@ idf_component_register(
         "${UMURMUR_SRC}/messages.c"
         "${UMURMUR_SRC}/pds.c"
         "${UMURMUR_SRC}/server.c"
-        "${UMURMUR_SRC}/ssli_mbedtls.c"
+        "${UMURMUR_SRC}/ssli_mbedtls4.c"
         "${UMURMUR_SRC}/timer.c"
         "${UMURMUR_SRC}/util.c"
         "${UMURMUR_SRC}/voicetarget.c"
@@ -63,6 +81,7 @@ idf_component_register(
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     _GNU_SOURCE
     "UMURMUR_VERSION=\"${UMURMUR_VERSION}\""
+    "SSLIMP_VERSION=\"${_SSLIMP_VERSION}\""
 )
 
 target_include_directories(${COMPONENT_LIB} BEFORE PRIVATE

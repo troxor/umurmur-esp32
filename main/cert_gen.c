@@ -4,25 +4,16 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 
 #include "mbedtls/error.h"
 #include "mbedtls/pk.h"
-#include "mbedtls/ecp.h"
 #include "mbedtls/x509_crt.h"
-#include "mbedtls/version.h"
+#include "psa/crypto.h"
 
 static const char *TAG = "cert_gen";
 
 #define PEM_BUF_CERT 2048
 #define PEM_BUF_KEY  2048
-
-static int rng_fill(void *ctx, unsigned char *out, size_t len)
-{
-	(void)ctx;
-	esp_fill_random(out, len);
-	return 0;
-}
 
 static void mbedtls_fail(const char *what, int rc)
 {
@@ -50,25 +41,40 @@ static bool dup_pems(umurmur_nvs_t *cfg, const char *cert, const char *key)
 
 static bool generate_ecdsa_pems(char *cert_pem, size_t cert_sz, char *key_pem, size_t key_sz)
 {
+	psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+	psa_key_id_t key_id = PSA_KEY_ID_NULL;
+	psa_status_t status;
 	mbedtls_pk_context key;
 	mbedtls_x509write_cert crt;
 	unsigned char serial = 1;
 	int rc;
 	bool ok = false;
 
+	if (psa_crypto_init() != PSA_SUCCESS) {
+		ESP_LOGE(TAG, "psa_crypto_init failed");
+		return false;
+	}
+
+	psa_set_key_usage_flags(&attributes,
+				PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
+				PSA_KEY_USAGE_EXPORT);
+	psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+	psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+	psa_set_key_bits(&attributes, 256);
+
+	status = psa_generate_key(&attributes, &key_id);
+	psa_reset_key_attributes(&attributes);
+	if (status != PSA_SUCCESS) {
+		ESP_LOGE(TAG, "psa_generate_key failed: %d", (int)status);
+		return false;
+	}
+
 	mbedtls_pk_init(&key);
 	mbedtls_x509write_crt_init(&crt);
 
-	rc = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
+	rc = mbedtls_pk_copy_from_psa(key_id, &key);
 	if (rc != 0) {
-		mbedtls_fail("pk_setup", rc);
-		goto out;
-	}
-
-	rc = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(key),
-				 rng_fill, NULL);
-	if (rc != 0) {
-		mbedtls_fail("ecp_gen_key", rc);
+		mbedtls_fail("pk_copy_from_psa", rc);
 		goto out;
 	}
 
@@ -95,18 +101,7 @@ static bool generate_ecdsa_pems(char *cert_pem, size_t cert_sz, char *key_pem, s
 		goto out;
 	}
 
-#if MBEDTLS_VERSION_NUMBER >= 0x03020000
 	rc = mbedtls_x509write_crt_set_serial_raw(&crt, &serial, 1);
-#else
-	{
-		mbedtls_mpi mpi;
-		mbedtls_mpi_init(&mpi);
-		rc = mbedtls_mpi_lset(&mpi, 1);
-		if (rc == 0)
-			rc = mbedtls_x509write_crt_set_serial(&crt, &mpi);
-		mbedtls_mpi_free(&mpi);
-	}
-#endif
 	if (rc != 0) {
 		mbedtls_fail("set_serial", rc);
 		goto out;
@@ -121,8 +116,7 @@ static bool generate_ecdsa_pems(char *cert_pem, size_t cert_sz, char *key_pem, s
 	memset(cert_pem, 0, cert_sz);
 	memset(key_pem, 0, key_sz);
 
-	rc = mbedtls_x509write_crt_pem(&crt, (unsigned char *)cert_pem, cert_sz,
-				       rng_fill, NULL);
+	rc = mbedtls_x509write_crt_pem(&crt, (unsigned char *)cert_pem, cert_sz);
 	if (rc != 0) {
 		mbedtls_fail("crt_pem", rc);
 		goto out;
@@ -138,6 +132,8 @@ static bool generate_ecdsa_pems(char *cert_pem, size_t cert_sz, char *key_pem, s
 out:
 	mbedtls_x509write_crt_free(&crt);
 	mbedtls_pk_free(&key);
+	if (key_id != PSA_KEY_ID_NULL)
+		psa_destroy_key(key_id);
 	return ok;
 }
 

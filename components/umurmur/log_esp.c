@@ -1,4 +1,5 @@
 #include "log.h"
+#include "umurmur_heap.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -9,6 +10,15 @@
 #include "esp_system.h"
 
 static const char *TAG = "umurmur";
+
+void umurmur_heap_log(const char *phase)
+{
+	ESP_LOGI(TAG, "heap [%s] clients=%d free=%u largest=%u",
+		phase ? phase : "?",
+		Client_count(),
+		(unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+		(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
 
 static void vlog(esp_log_level_t level, const char *fmt, va_list ap)
 {
@@ -63,13 +73,8 @@ void Log_info_client(client_t *client, const char *logstring, ...)
 	else
 		ESP_LOGI(TAG, "%s", buf);
 
-	/* Heap breadcrumb on auth / disconnect without coupling to main. */
-	if (strstr(buf, "authenticated") || strstr(buf, "Timeout") ||
-	    strstr(buf, "Closing connection") || strstr(buf, "Connection closed")) {
-		ESP_LOGI(TAG, "heap free=%u min=%u",
-			(unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
-			(unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
-	}
+	if (strstr(buf, "authenticated"))
+		umurmur_heap_log("authed");
 }
 
 void Log_fatal(const char *logstring, ...)

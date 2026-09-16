@@ -5,7 +5,7 @@ This project patches the latest release of [umurmur/umurmur](https://github.com/
 ## Requirements
 
 - ESP32 or ESP32-S3 SoC microcontroller
-- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) v5.x
+- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) v6.1
 
 ## Installation
 
@@ -27,7 +27,7 @@ All the tools necessary to build ESP-IDF projects are in a convenient Docker ima
 ```bash
 docker run -it --rm \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$PWD:/project" -w /project espressif/idf:v5.5 \
+  -v "$PWD:/project" -w /project espressif/idf:v6.1 \
   idf.py ...
 ```
 
