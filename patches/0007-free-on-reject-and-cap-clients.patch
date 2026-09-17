@@ -112,7 +112,7 @@ diff --git a/src/client.c b/src/client.c
  void Client_disconnect_all(void)
  {
  	struct dlist *itr, *save;
-@@ -308,24 +379,57 @@
+@@ -308,24 +379,64 @@
  {
  	int rc;
  
@@ -160,6 +160,13 @@ diff --git a/src/client.c b/src/client.c
  			return -1;
  		}
 +		if (client->SSLready) {
++			char *ip = Util_addressToString(&client->remote_tcp);
++
++			Log_info("Accepting %s from %s with %s",
++				mbedtls_ssl_get_version(client->ssl),
++				ip ? ip : "?",
++				mbedtls_ssl_get_ciphersuite(client->ssl));
++			free(ip);
 +			/*
 +			 * Overflow slot: don't wait for Auth. Under load the 5th client
 +			 * often never gets a POLLIN read before inactivity timeout.

@@ -1,8 +1,7 @@
 From: umurmur-esp32 <noreply@local>
-Subject: [PATCH] ESP heap: log after Client_free; print negotiated TLS
+Subject: [PATCH] ESP heap: log after Client_free
 
-- umurmur_heap_log("freed") after Client_free (reconnect baseline).
-- Log negotiated TLS version/ciphersuite on handshake (no heap sample).
+- Log_info heap snapshot after Client_free (reconnect baseline).
 
 diff --git a/src/client.c b/src/client.c
 index 4f5b229..05ad66c 100644
@@ -12,28 +11,16 @@ index 4f5b229..05ad66c 100644
  #include "channel.h"
  #include "config.h"
  #include "voicetarget.h"
-+#include "umurmur_heap.h"
++#include "esp_heap_caps.h"
  #include "ban.h"
  #include "util.h"
  
-@@ -268,6 +269,7 @@ void Client_free(client_t *client)
+@@ -268,6 +269,8 @@ void Client_free(client_t *client)
  	if (client->context)
  		free(client->context);
  	free(client);
-+	umurmur_heap_log("freed");
++	Log_info("heap [freed] clients=%d free=%u", Client_count(),
++		(unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
  }
  
  void Client_close(client_t *client)
-diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
-index 6f8a3dd..45b3247 100644
---- a/src/ssli_mbedtls4.c
-+++ b/src/ssli_mbedtls4.c
-@@ -197,6 +197,8 @@ int SSLi_nonblockaccept(SSL_handle_t *ssl, bool_t *SSLready)
- 		return -1;
- 	}
- 	*SSLready = true;
-+	Log_info("TLS %s %s", mbedtls_ssl_get_version(ssl),
-+		mbedtls_ssl_get_ciphersuite(ssl));
- 	return 0;
- }
- 
