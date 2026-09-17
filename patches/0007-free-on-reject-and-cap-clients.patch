@@ -297,7 +297,7 @@ diff --git a/src/messagehandler.c b/src/messagehandler.c
  	msg->payload.reject->has_type = true;
  	Client_send_message(client, msg);
 +	if (Client_flush_tx(client) != 0)
-+		Log_warn("Reject not fully flushed (tx left=%u)", client->txsize);
++		Log_warn("Reject not fully flushed (tx left=%" PRIu32 ")", client->txsize);
  
  	Log_info_client(client, "Server reject reason: %s", reason);
  }
