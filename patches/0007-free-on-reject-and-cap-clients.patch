@@ -1,0 +1,340 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] fix: deliver Reject then free; cap Client_add at MAX+1
+
+diff --git a/src/client.c b/src/client.c
+--- a/src/client.c
++++ b/src/client.c
+@@ -85,7 +85,7 @@
+ 		c = list_get_entry(itr, client_t, node);
+ 		pollfds[i].fd = c->tcpfd;
+ 		pollfds[i].events = POLLIN | POLLHUP | POLLERR;
+-		if (c->txsize > 0 || c->readBlockedOnWrite) /* Data waiting to be sent? */
++		if (c->txsize > 0 || c->readBlockedOnWrite || !list_empty(&c->txMsgQueue))
+ 			pollfds[i].events |= POLLOUT;
+ 		i++;
+ 	}
+@@ -104,6 +104,14 @@
+ 		if (c->availableBandwidth > bwTop)
+ 			c->availableBandwidth = bwTop;
+ 
++		if (c->shutdown_wait || !c->SSLready) {
++			/* Reject-grace or stuck handshake — don't wait for inactivity. */
++			if (c->shutdown_wait ||
++			    Timer_isElapsed(&c->connectTime, 1000000LL * 3)) {
++				Client_free(c);
++				continue;
++			}
++		}
+ 		if (Timer_isElapsed(&c->lastActivity, 1000000LL * INACTIVITY_TIMEOUT)) {
+ 			/* No activity from client - assume it is lost and close. */
+ 			Log_info_client(c, "Timeout, closing.");
+@@ -187,6 +195,22 @@
+ 		return -1;
+ 	}
+ 
++	/* pollfds budgets MAX + 1 "connecting that will be disconnected". */
++	if (Client_count() > getIntConf(MAX_CLIENTS)) {
++		client_t *c = NULL;
++		/* Prefer reclaiming reject-grace or unfinished TLS over dropping TCP. */
++		while ((c = Client_iterate(&c)) != NULL) {
++			if (c->shutdown_wait || !c->SSLready) {
++				Client_free(c);
++				break;
++			}
++		}
++		if (Client_count() > getIntConf(MAX_CLIENTS)) {
++			Log_info("Server full (%d clients), dropping TCP", Client_count());
++			return -1;
++		}
++	}
++
+ 	newclient = Memory_safeCalloc(1, sizeof(client_t));
+ 
+ 	newclient->tcpfd = fd;
+@@ -256,6 +280,13 @@
+ 	list_del(&client->node);
+ 	if (client->ssl)
+ 		SSLi_free(client->ssl);
++	/* Prefer FIN with pending send data over RST (so Reject can be read). */
++	{
++		struct linger lin = { .l_onoff = 1, .l_linger = 1 };
++
++		setsockopt(client->tcpfd, SOL_SOCKET, SO_LINGER, &lin, sizeof(lin));
++		shutdown(client->tcpfd, SHUT_WR);
++	}
+ 	close(client->tcpfd);
+ 	clientcount--;
+ 	if (client->release)
+@@ -278,6 +309,46 @@
+ 	client->shutdown_wait = true;
+ }
+ 
++void Client_tx_clear(client_t *client)
++{
++	struct dlist *itr, *save;
++
++	list_iterate_safe(itr, save, &client->txMsgQueue) {
++		list_del(&list_get_entry(itr, message_t, node)->node);
++		Msg_free(list_get_entry(itr, message_t, node));
++	}
++	client->txQueueCount = 0;
++	client->txsize = client->txcount = 0;
++	client->writeBlockedOnRead = false;
++	client->readBlockedOnWrite = false;
++}
++
++/* Best-effort: push txbuf (e.g. Reject) to TCP before shutdown_wait grace. */
++int Client_flush_tx(client_t *client)
++{
++	int i;
++
++	for (i = 0; i < 64 && client->txsize != 0; i++) {
++		if (client->writeBlockedOnRead) {
++			uint8_t discard[256];
++			int r;
++
++			client->writeBlockedOnRead = false;
++			do {
++				r = SSLi_read(client->ssl, discard, sizeof(discard));
++			} while (r > 0);
++		}
++		if (Client_write(client) < 0)
++			return -1; /* client freed */
++		if (client->writeBlockedOnRead)
++			continue;
++		/* WANT_WRITE left tx pending — need POLLOUT */
++		if (client->txsize != 0)
++			return -1;
++	}
++	return client->txsize == 0 ? 0 : -1;
++}
++
+ void Client_disconnect_all(void)
+ {
+ 	struct dlist *itr, *save;
+@@ -308,24 +379,57 @@
+ {
+ 	int rc;
+ 
+-	Timer_restart(&client->lastActivity);
++	/*
++	 * After Reject: keep the socket up until janitor/peer-close so the client
++	 * can read ServerFull. Freeing immediately races and shows up as RST/EOF.
++	 */
++	if (client->shutdown_wait) {
++		if (client->writeBlockedOnRead) {
++			uint8_t discard[256];
++			int r;
++
++			client->writeBlockedOnRead = false;
++			do {
++				r = SSLi_read(client->ssl, discard, sizeof(discard));
++			} while (r > 0);
++		}
++		if (client->txsize != 0)
++			Client_write(client);
++		return 0;
++	}
++
++	/* Don't refresh watchdog until TLS is up — handshake zombies were immortal. */
++	if (client->SSLready)
++		Timer_restart(&client->lastActivity);
+ 
+ 	if (client->writeBlockedOnRead) {
+ 		client->writeBlockedOnRead = false;
+ 		Log_debug("Client_read: writeBlockedOnRead == true");
+-		return Client_write(client);
++		if (Client_write(client) < 0)
++			return -1;
++		/* Fall through — peer data (Authenticate) may already be buffered. */
+ 	}
+ 
+-	if (client->shutdown_wait) {
+-		Client_free(client);
+-		return 0;
+-	}
+ 	if (!client->SSLready) {
+ 		rc = SSLi_nonblockaccept(client->ssl, &client->SSLready);
+ 		if (rc < 0) {
+ 			Client_free(client);
+ 			return -1;
+ 		}
++		if (client->SSLready) {
++			/*
++			 * Overflow slot: don't wait for Auth. Under load the 5th client
++			 * often never gets a POLLIN read before inactivity timeout.
++			 */
++			if (Client_count() > getIntConf(MAX_CLIENTS)) {
++				Client_tx_clear(client); /* drop Version — Reject only */
++				Mh_reject_server_full(client);
++				return 0;
++			}
++			/* Kick Version queued during handshake — don't SSLi_write(0). */
++			if (Client_write(client) < 0)
++				return -1;
++		}
+ 	}
+ 
+ 	do {
+@@ -362,8 +466,21 @@
+ 				/* pass messsage to handler */
+ 				if (msg)
+ 					Mh_handle_message(client, msg);
+-				if (client->shutdown_wait)
++				if (client->shutdown_wait) {
++					if (client->writeBlockedOnRead) {
++						uint8_t discard[256];
++						int r;
++
++						client->writeBlockedOnRead = false;
++						do {
++							r = SSLi_read(client->ssl, discard, sizeof(discard));
++						} while (r > 0);
++					}
++					if (client->txsize != 0)
++						Client_write(client);
++					/* Leave socket for peer to read Reject; janitor frees. */
+ 					return 0;
++				}
+ 				client->rxcount = client->msgsize = 0;
+ 			}
+ 		} else /* rc <= 0 */ {
+@@ -377,7 +494,7 @@
+ 			else if (SSLi_get_error(client->ssl, rc) == SSLI_ERROR_ZERO_RETURN ||
+ 				SSLi_get_error(client->ssl, rc) == 0) {
+ 				Log_info_client(client, "Connection closed by peer");
+-				Client_close(client);
++				Client_free(client);
+ 				return 0;
+ 			}
+ 			else {
+@@ -429,6 +546,18 @@
+ 		Log_debug("Client_write: readBlockedOnWrite == true");
+ 		return Client_read(client);
+ 	}
++	/* POLLOUT with only a queued message used to SSLi_write(len=0), which
++	 * emits an empty TLS app record; OpenSSL then fails with RECORD_TOO_SMALL. */
++	if (client->txsize == 0) {
++		if (!list_empty(&client->txMsgQueue)) {
++			message_t *msg;
++			msg = list_get_entry(list_get_first(&client->txMsgQueue), message_t, node);
++			list_del(list_get_first(&client->txMsgQueue));
++			client->txQueueCount--;
++			return Client_send_message(client, msg);
++		}
++		return 0;
++	}
+ 	rc = SSLi_write(client->ssl, &client->txbuf[client->txcount], client->txsize - client->txcount);
+ 	if (rc > 0) {
+ 		client->txcount += rc;
+@@ -453,6 +582,10 @@
+ 			else {
+ 				Log_info_client(client, "SSL error: %d - Closing connection.", SSLi_get_error(client->ssl, rc));
+ 			}
++			/* Don't leave tx pending: POLLOUT + Client_close spam close_notify
++			 * and the peer sees RECORD_TOO_SMALL / EOF / RST. */
++			client->txsize = client->txcount = 0;
++			Client_tx_clear(client);
+ 			Client_close(client);
+ 			return -1;
+ 		}
+@@ -464,6 +597,7 @@
+ 		client->txQueueCount--;
+ 		Client_send_message(client, msg);
+ 	}
++	/* Reject grace: do not free here when shutdown_wait; janitor/peer-close does. */
+ 	return 0;
+ }
+ 
+@@ -479,10 +613,8 @@
+ 
+ int Client_send_message(client_t *client, message_t *msg)
+ {
+-	if (client->shutdown_wait) {
+-		Msg_free(msg);
+-		return -1;
+-	}
++	/* Note: do not drop on shutdown_wait — Reject may be queued before the
++	 * flag is set and must still flush via Client_write. */
+ 	if (client->txsize != 0 || !client->SSLready) {
+ 		/* Queue message */
+ 		if ((client->txQueueCount > 5 &&  msg->messageType == UDPTunnel) ||
+diff --git a/src/client.h b/src/client.h
+--- a/src/client.h
++++ b/src/client.h
+@@ -112,6 +112,8 @@
+ int Client_send_message_except_ver(client_t *client, message_t *msg, uint32_t version);
+ int Client_count(void);
+ void Client_close(client_t *client);
++void Client_tx_clear(client_t *client);
++int Client_flush_tx(client_t *client);
+ client_t *Client_iterate(client_t **client);
+ client_t *Client_iterate_authenticated(client_t **client_itr);
+ int Client_send_message_except(client_t *client, message_t *msg);
+diff --git a/src/messagehandler.c b/src/messagehandler.c
+--- a/src/messagehandler.c
++++ b/src/messagehandler.c
+@@ -55,15 +55,31 @@
+ 
+ static void sendServerReject(client_t *client, const char *reason, MumbleProto__Reject__RejectType type)
+ {
+-	message_t *msg = Msg_create(Reject);
++	message_t *msg;
++
++	/* Drop Version etc. — Reject must be the only thing on the wire. */
++	Client_tx_clear(client);
++
++	msg = Msg_create(Reject);
+ 	msg->payload.reject->reason = strdup(reason);
+ 	msg->payload.reject->type = type;
+ 	msg->payload.reject->has_type = true;
+ 	Client_send_message(client, msg);
++	if (Client_flush_tx(client) != 0)
++		Log_warn("Reject not fully flushed (tx left=%u)", client->txsize);
+ 
+ 	Log_info_client(client, "Server reject reason: %s", reason);
+ }
+ 
++void Mh_reject_server_full(client_t *client)
++{
++	char buf[64];
++
++	snprintf(buf, sizeof(buf), "Server is full (max %d users)", getIntConf(MAX_CLIENTS));
++	sendServerReject(client, buf, MUMBLE_PROTO__REJECT__REJECT_TYPE__ServerFull);
++	client->shutdown_wait = true;
++}
++
+ static void sendPermissionDenied(client_t *client, const char *reason)
+ {
+ 	message_t *msg = Msg_create(PermissionDenied);
+@@ -178,9 +194,7 @@
+ 
+ 		/* Client_count includes this connecting client (not yet authenticated). */
+ 		if (Client_count() > getIntConf(MAX_CLIENTS)) {
+-			char buf[64];
+-			snprintf(buf, 64, "Server is full (max %d users)", getIntConf(MAX_CLIENTS));
+-			sendServerReject(client, buf, MUMBLE_PROTO__REJECT__REJECT_TYPE__ServerFull);
++			Mh_reject_server_full(client);
+ 			goto disconnect;
+ 		}
+ 
+@@ -953,6 +967,7 @@
+ 
+ disconnect:
+ 	Msg_free(msg);
+-	Client_close(client);
++	/* Don't SSLi_shutdown yet — let Reject flush, then Client_free. */
++	client->shutdown_wait = true;
+ }
+ 
+diff --git a/src/messagehandler.h b/src/messagehandler.h
+--- a/src/messagehandler.h
++++ b/src/messagehandler.h
+@@ -36,4 +36,7 @@
+ 
+ void Mh_handle_message(client_t *client, message_t *msg);
+ 
++/* Reject ServerFull (shared by Auth path and post-handshake overflow). */
++void Mh_reject_server_full(client_t *client);
++
+ #endif

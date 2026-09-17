@@ -1,0 +1,23 @@
+From: umurmur-esp32 <noreply@local>
+Subject: [PATCH] ssli_mbedtls4: log handshake failures with mbedtls_strerror
+
+Upstreamable: replace bare error code with mbedtls_strerror in
+SSLi_nonblockaccept().
+
+diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
+index 4935f06..6f8a3dd 100644
+--- a/src/ssli_mbedtls4.c
++++ b/src/ssli_mbedtls4.c
+@@ -189,7 +189,11 @@ int SSLi_nonblockaccept(SSL_handle_t *ssl, bool_t *SSLready)
+ 			return 0;
+ 		if (rc == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED)
+ 			return 0;
+-		Log_warn("SSL handshake failed: %d", rc);
++		{
++			char buffer[128];
++			mbedtls_strerror(rc, buffer, sizeof(buffer));
++			Log_warn("SSL handshake failed: %s (-0x%04x)", buffer, (unsigned)-rc);
++		}
+ 		return -1;
+ 	}
+ 	*SSLready = true;
