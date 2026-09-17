@@ -94,6 +94,7 @@ static bool try_sta(const umurmur_nvs_t *cfg)
 {
 	if (!cfg->wifi_sta_ssid[0]) {
 		ESP_LOGI(TAG, "No SSID provided, return to config");
+		esp_wifi_deinit(); /* match STA-fail path so SoftAP can re-init */
 		return false;
 	}
 
