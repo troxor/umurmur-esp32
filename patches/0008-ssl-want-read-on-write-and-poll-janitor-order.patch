@@ -1,5 +1,11 @@
 From: umurmur-esp32 <noreply@local>
-Subject: [PATCH] fix: WANT_READ/ENOMEM on write; poll order
+Subject: [PATCH] fix: WANT_READ on write; lwIP ENOMEM→WANT_WRITE; poll order
+
+Upstreamable (ESP-motivated).
+
+- Map WANT_READ in SSLi_write; map NET_SEND_FAILED+ENOMEM/ENOBUFS to WANT_WRITE.
+- Run Client_janitor before Client_getfds so poll never sees closed fds.
+- Check accept() < 0 before using the fd.
 
 diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
 --- a/src/ssli_mbedtls4.c
@@ -12,7 +18,7 @@ diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
  #include <stdlib.h>
  #include <string.h>
  
-@@ -217,8 +218,21 @@
+@@ -217,8 +218,19 @@
  	int rc;
  
  	rc = mbedtls_ssl_write(ssl, buf, len);
@@ -22,15 +28,13 @@ diff --git a/src/ssli_mbedtls4.c b/src/ssli_mbedtls4.c
  		return SSLI_ERROR_WANT_WRITE;
 +	/* lwIP often returns ENOMEM/ENOBUFS when the TCP send queue is full;
 +	 * mbedtls_net_send only maps EAGAIN → WANT_WRITE, so treat those as retry. */
-+	if (rc == MBEDTLS_ERR_NET_SEND_FAILED) {
-+		if (errno == ENOMEM || errno == ENOBUFS || errno == EAGAIN
++	if (rc == MBEDTLS_ERR_NET_SEND_FAILED &&
++	    (errno == ENOMEM || errno == ENOBUFS || errno == EAGAIN
 +#if defined(EWOULDBLOCK)
-+		    || errno == EWOULDBLOCK
++	     || errno == EWOULDBLOCK
 +#endif
-+		    )
-+			return SSLI_ERROR_WANT_WRITE;
-+		Log_warn("SSLi_write NET_SEND_FAILED errno=%d (%s)", errno, strerror(errno));
-+	}
++	     ))
++		return SSLI_ERROR_WANT_WRITE;
  	return rc;
  }
  
