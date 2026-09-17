@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Derive product version from upstream umurmur semver + git SHA + local patches.
+# Derive product G
 #
 # Form:  esp32-<semver>+<shortsha>[.p<N>]
 #   <semver>    upstream (e.g. 0.4.1)
@@ -40,9 +40,10 @@ case "${mode}" in
   semver) echo "${semver}" ;;
   patch_count) echo "${n}" ;;
   sha) echo "${sha}" ;;
-  version) echo "${full}" ;;
+  version) echo "${semver}${meta}" ;;
+  fullversion) echo "${full}" ;;
   *)
-    echo "usage: $0 {semver|patch_count|sha|version}" >&2
+    echo "usage: $0 {semver|patch_count|sha|fullversion|version}" >&2
     exit 2
     ;;
 esac
