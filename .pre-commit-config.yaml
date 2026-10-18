@@ -1,6 +1,10 @@
 repos:
-  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: '3.11.1'  # pick a tag, e.g. v2.0.0
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
     hooks:
-      - id: editorconfig-checker
-        alias: ec
+      - id: end-of-file-fixer
+        exclude: ^patches/
+      - id: trailing-whitespace
+        exclude: ^patches/
+      - id: check-yaml
+      - id: check-merge-conflict
